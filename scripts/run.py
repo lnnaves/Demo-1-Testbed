@@ -3,19 +3,25 @@
 import argparse
 import copy
 import ipaddress
+import json
 import os
 import posixpath
+import queue
 import re
 import shlex
+import signal
 import subprocess
 import sys
-from pathlib import PurePosixPath
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
 try:
     import yaml
 except ImportError as exc:
     raise SystemExit(
-        "PyYAML is required to load scenario files.\n"
+        "PyYAML is required.\n"
         "Install it with: python3 -m pip install PyYAML"
     ) from exc
 
@@ -28,46 +34,39 @@ from mn_wifi.telemetry import telemetry
 from mn_wifi.wmediumdConnector import interference
 
 
-# ====== Project paths ======
+# =============================================================================
+# Project paths
+# =============================================================================
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+BIN_HOST_DIR = PROJECT_ROOT / "bin"
 
-# Host directory mounted inside every container.
-BIN_HOST_DIR = os.path.join(PROJECT_ROOT, "bin")
+DEFAULT_SCENARIO_PATH = SCRIPT_DIR / "scenario.example.yml"
 
-DEFAULT_SCENARIO_PATH = os.path.join(
-    SCRIPT_DIR,
-    "scenario.example.yml",
-)
+# Writable directory mounted inside every protocol container.
+RESULTS_CONTAINER_DIR = "/opt/testbed/results"
 
 
-# ====== Network defaults ======
+# =============================================================================
+# Defaults
+# =============================================================================
 
-BSSID_CELL = "02:11:22:33:44:55"
+DEFAULT_BSSID = "02:11:22:33:44:55"
 
 WLAN_MTU = 1500
 BAT_MTU_DESIRED = 5000
 MTU_FALLBACK = 1500
 
-DEFAULT_NOISE_THRESHOLD = -91
-DEFAULT_FADING_COEFFICIENT = 3
-
 DEFAULT_NODE_MEMORY = "4g"
 DEFAULT_GCS_MEMORY = "16g"
-DEFAULT_NODE_RANGE = 25
-DEFAULT_TX_POWER = 10
+DEFAULT_NODE_RANGE_METERS = 25
+DEFAULT_TXPOWER_DBM = 10
 
-SUPPORTED_ROLES = {
-    "sender",
-    "receiver",
-}
-
-SUPPORTED_COMMUNICATION_MODES = {
-    "unicast",
-    "broadcast",
-}
-
+SUPPORTED_ROLES = {"sender", "receiver"}
+SUPPORTED_MEDIUM_MODES = {"interference"}
+SUPPORTED_COMMUNICATION_MODES = {"unicast", "broadcast"}
+SUPPORTED_MISSING_BINARY_POLICIES = {"idle", "skip", "fail"}
 SUPPORTED_TERMINATION_CONDITIONS = {
     "senders_completed",
     "duration_elapsed",
@@ -77,27 +76,92 @@ CONTAINER_NAME_PATTERN = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9_.-]*$"
 )
 
-EXIT_CODE_MARKER = "__TESTBED_EXIT_CODE__="
+INTERFACE_COUNTER_NAMES = (
+    "rx_bytes",
+    "tx_bytes",
+    "rx_packets",
+    "tx_packets",
+    "rx_dropped",
+    "tx_dropped",
+    "rx_errors",
+    "tx_errors",
+)
 
 
-# ====== Command-line arguments ======
+# =============================================================================
+# Utility functions
+# =============================================================================
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def utc_now_iso():
+    return utc_now().isoformat()
+
+
+def safe_name(value):
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value))
+    value = value.strip(".-")
+    return value or "unnamed"
+
+
+def write_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", encoding="utf-8") as output:
+        json.dump(
+            data,
+            output,
+            indent=2,
+            sort_keys=False,
+            ensure_ascii=False,
+        )
+        output.write("\n")
+
+
+def address_without_prefix(ip_cidr):
+    return str(ipaddress.ip_interface(ip_cidr).ip)
+
+
+def container_binary_path(container_directory, binary):
+    parts = [
+        part
+        for part in PurePosixPath(binary).parts
+        if part not in ("", ".")
+    ]
+
+    return posixpath.join(container_directory, *parts)
+
+
+def host_binary_path(binary):
+    parts = [
+        part
+        for part in PurePosixPath(binary).parts
+        if part not in ("", ".")
+    ]
+
+    return BIN_HOST_DIR.joinpath(*parts)
+
+
+# =============================================================================
+# Arguments
+# =============================================================================
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description=(
-            "Create a Containernet/Mininet-WiFi topology from "
-            "a YAML scenario."
-        ),
+            "Run a protocol experiment using "
+            "Containernet, Mininet-WiFi and wmediumd."
+        )
     )
 
     parser.add_argument(
         "scenario",
         nargs="?",
-        default=DEFAULT_SCENARIO_PATH,
-        help=(
-            "Path to the scenario YAML file. "
-            f"Default: {DEFAULT_SCENARIO_PATH}"
-        ),
+        default=str(DEFAULT_SCENARIO_PATH),
+        help="Path to the YAML scenario.",
     )
 
     parser.add_argument(
@@ -113,63 +177,53 @@ def parse_arguments():
         "--cli",
         action="store_true",
         help=(
-            "Open the Containernet CLI after configuring the topology."
+            "Create the topology and open the Mininet-WiFi CLI "
+            "without executing the protocol experiment."
         ),
     )
 
     parser.add_argument(
         "--telemetry",
         action="store_true",
-        help=(
-            "Start Mininet-WiFi position telemetry. "
-            "This option is normally used together with --cli."
-        ),
+        help="Enable Mininet-WiFi position telemetry.",
     )
 
     return parser.parse_args()
 
 
-# ====== Scenario loading and normalization ======
+# =============================================================================
+# Scenario loading and node-group expansion
+# =============================================================================
 
 def load_scenario(path):
-    scenario_path = os.path.abspath(path)
+    scenario_path = Path(path).resolve()
 
-    if not os.path.isfile(scenario_path):
+    if not scenario_path.is_file():
         raise ValueError(
             f"Scenario file not found: {scenario_path}"
         )
 
     try:
-        with open(scenario_path, "r", encoding="utf-8") as scenario_file:
+        with scenario_path.open(
+            "r",
+            encoding="utf-8",
+        ) as scenario_file:
             scenario = yaml.safe_load(scenario_file)
     except yaml.YAMLError as exc:
         raise ValueError(
-            f"Invalid YAML in scenario file {scenario_path}: {exc}"
+            f"Invalid YAML in {scenario_path}: {exc}"
         ) from exc
-
-    if scenario is None:
-        raise ValueError(
-            f"Scenario file is empty: {scenario_path}"
-        )
 
     if not isinstance(scenario, dict):
         raise ValueError(
             "The scenario root must be a YAML mapping."
         )
 
-    scenario["_scenario_file"] = scenario_path
-
+    scenario["_scenario_file"] = str(scenario_path)
     return scenario
 
 
 def deep_merge(base, override):
-    """
-    Recursively merge override into base.
-
-    Dictionaries are merged recursively. Other values, including lists,
-    replace the corresponding value in base.
-    """
-
     result = copy.deepcopy(base)
 
     for key, value in override.items():
@@ -178,7 +232,10 @@ def deep_merge(base, override):
             and isinstance(result[key], dict)
             and isinstance(value, dict)
         ):
-            result[key] = deep_merge(result[key], value)
+            result[key] = deep_merge(
+                result[key],
+                value,
+            )
         else:
             result[key] = copy.deepcopy(value)
 
@@ -186,22 +243,6 @@ def deep_merge(base, override):
 
 
 def render_template_value(value, context):
-    """
-    Render strings used by node group templates.
-
-    Available variables:
-
-      {group}
-      {index}
-      {ordinal}
-
-    Examples:
-
-      identity: "drone-{index}"
-      container_name: "dr{index}"
-      ip: "192.168.123.{index}/24"
-    """
-
     if isinstance(value, dict):
         return {
             key: render_template_value(item, context)
@@ -219,20 +260,14 @@ def render_template_value(value, context):
 
     try:
         rendered = value.format_map(context)
-    except KeyError as exc:
+    except (KeyError, ValueError) as exc:
         raise ValueError(
-            f"Unknown template variable {exc} in value: {value!r}"
-        ) from exc
-    except ValueError as exc:
-        raise ValueError(
-            f"Invalid template expression in value: {value!r}"
+            f"Invalid node-group template value: {value!r}"
         ) from exc
 
     if rendered == value:
         return rendered
 
-    # Recover numeric and boolean YAML scalars when the rendered template
-    # consists entirely of such a value. Addresses and names remain strings.
     try:
         parsed = yaml.safe_load(rendered)
     except yaml.YAMLError:
@@ -245,45 +280,27 @@ def render_template_value(value, context):
 
 
 def normalize_group_overrides(raw_overrides, group_name):
-    """
-    Convert node group overrides into a dictionary indexed by node index.
-
-    Supported list format:
-
-      overrides:
-        - index: 2
-          roles:
-            - sender
-
-    Supported mapping format:
-
-      overrides:
-        2:
-          roles:
-            - sender
-    """
-
     if raw_overrides is None:
         return {}
 
     normalized = {}
 
     if isinstance(raw_overrides, dict):
-        items = raw_overrides.items()
+        iterable = raw_overrides.items()
 
-        for raw_index, override in items:
+        for raw_index, override in iterable:
             try:
                 index = int(raw_index)
             except (TypeError, ValueError) as exc:
                 raise ValueError(
-                    f"node_groups[{group_name}].overrides has an "
-                    f"invalid index: {raw_index!r}"
+                    f"Invalid override index in group "
+                    f"{group_name!r}: {raw_index!r}"
                 ) from exc
 
             if not isinstance(override, dict):
                 raise ValueError(
-                    f"Override {index} in node group {group_name!r} "
-                    "must be a mapping."
+                    f"Override {index} in group "
+                    f"{group_name!r} must be a mapping."
                 )
 
             normalized[index] = copy.deepcopy(override)
@@ -291,101 +308,75 @@ def normalize_group_overrides(raw_overrides, group_name):
         return normalized
 
     if isinstance(raw_overrides, list):
-        for position, override in enumerate(raw_overrides):
+        for override in raw_overrides:
             if not isinstance(override, dict):
                 raise ValueError(
-                    f"Override #{position + 1} in node group "
-                    f"{group_name!r} must be a mapping."
+                    f"Overrides in group {group_name!r} "
+                    "must be mappings."
                 )
 
             if "index" not in override:
                 raise ValueError(
-                    f"Override #{position + 1} in node group "
-                    f"{group_name!r} must contain an index."
+                    f"An override in group {group_name!r} "
+                    "does not contain index."
                 )
 
             try:
                 index = int(override["index"])
             except (TypeError, ValueError) as exc:
                 raise ValueError(
-                    f"Invalid override index in node group "
-                    f"{group_name!r}: {override['index']!r}"
+                    f"Invalid override index in group "
+                    f"{group_name!r}."
                 ) from exc
 
-            override_without_index = copy.deepcopy(override)
-            override_without_index.pop("index", None)
-
-            normalized[index] = override_without_index
+            value = copy.deepcopy(override)
+            value.pop("index", None)
+            normalized[index] = value
 
         return normalized
 
     raise ValueError(
         f"node_groups[{group_name}].overrides must be "
-        "a mapping or a list."
+        "a list or mapping."
     )
 
 
 def expand_node_groups(scenario):
-    """
-    Expand node_groups into the regular nodes list.
-
-    Example:
-
-      node_groups:
-        - name: drones
-          count: 3
-          start_index: 1
-          template:
-            identity: "drone-{index}"
-            container_name: "dr{index}"
-            type: "drone"
-            ip: "192.168.123.{index}/24"
-            roles:
-              - receiver
-            position:
-              x: "{index}"
-              y: 20
-              z: 0
-          overrides:
-            - index: 1
-              roles:
-                - sender
-    """
-
     explicit_nodes = scenario.get("nodes") or []
-    node_groups = scenario.get("node_groups") or []
+    groups = scenario.get("node_groups") or []
 
     if not isinstance(explicit_nodes, list):
         raise ValueError("nodes must be a list.")
 
-    if not isinstance(node_groups, list):
+    if not isinstance(groups, list):
         raise ValueError("node_groups must be a list.")
 
-    expanded_nodes = copy.deepcopy(explicit_nodes)
+    expanded = copy.deepcopy(explicit_nodes)
 
-    for group_position, group in enumerate(node_groups):
+    for position, group in enumerate(groups):
         if not isinstance(group, dict):
             raise ValueError(
-                f"node_groups[{group_position}] must be a mapping."
+                f"node_groups[{position}] must be a mapping."
             )
 
         group_name = group.get("name")
-
-        if not isinstance(group_name, str) or not group_name.strip():
-            raise ValueError(
-                f"node_groups[{group_position}].name must be "
-                "a non-empty string."
-            )
-
         count = group.get("count")
+        start_index = group.get("start_index", 1)
+        template = group.get("template")
 
-        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        if not isinstance(group_name, str) or not group_name:
             raise ValueError(
-                f"node group {group_name!r} must have a positive "
-                "integer count."
+                f"node_groups[{position}].name is invalid."
             )
 
-        start_index = group.get("start_index", 1)
+        if (
+            not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 1
+        ):
+            raise ValueError(
+                f"Group {group_name!r} must have a positive count."
+            )
 
         if (
             not isinstance(start_index, int)
@@ -393,16 +384,12 @@ def expand_node_groups(scenario):
             or start_index < 0
         ):
             raise ValueError(
-                f"node group {group_name!r} must have a non-negative "
-                "integer start_index."
+                f"Group {group_name!r} has an invalid start_index."
             )
-
-        template = group.get("template")
 
         if not isinstance(template, dict):
             raise ValueError(
-                f"node group {group_name!r} must contain a "
-                "template mapping."
+                f"Group {group_name!r} must contain a template."
             )
 
         overrides = normalize_group_overrides(
@@ -414,18 +401,12 @@ def expand_node_groups(scenario):
             range(start_index, start_index + count)
         )
 
-        invalid_override_indexes = (
-            set(overrides.keys()) - valid_indexes
-        )
+        invalid_indexes = set(overrides) - valid_indexes
 
-        if invalid_override_indexes:
-            invalid_text = ", ".join(
-                str(index)
-                for index in sorted(invalid_override_indexes)
-            )
+        if invalid_indexes:
             raise ValueError(
-                f"node group {group_name!r} contains overrides "
-                f"outside its generated index range: {invalid_text}"
+                f"Group {group_name!r} has overrides outside "
+                f"its range: {sorted(invalid_indexes)}"
             )
 
         for ordinal in range(count):
@@ -443,22 +424,26 @@ def expand_node_groups(scenario):
             )
 
             if index in overrides:
-                rendered_override = render_template_value(
-                    copy.deepcopy(overrides[index]),
+                override = render_template_value(
+                    overrides[index],
                     context,
                 )
-                node = deep_merge(node, rendered_override)
+                node = deep_merge(node, override)
 
-            expanded_nodes.append(node)
+            expanded.append(node)
 
     normalized = copy.deepcopy(scenario)
-    normalized["nodes"] = expanded_nodes
+    normalized["nodes"] = expanded
     normalized.pop("node_groups", None)
 
     return normalized
 
 
-def apply_scenario_defaults(scenario):
+# =============================================================================
+# Defaults and normalization
+# =============================================================================
+
+def apply_defaults(scenario):
     normalized = copy.deepcopy(scenario)
 
     experiment = normalized.setdefault("experiment", {})
@@ -472,33 +457,32 @@ def apply_scenario_defaults(scenario):
         "binaries_directory",
         "/opt/protocol/bin",
     )
-    containers.setdefault("sender_binary", "./sender")
-    containers.setdefault("receiver_binary", "./receiver")
+    containers.setdefault("sender_binary", "sender")
+    containers.setdefault("receiver_binary", "receiver")
+
+    execution = normalized.setdefault("execution", {})
+    execution.setdefault("enabled", True)
+    execution.setdefault("missing_binaries", "idle")
 
     network = normalized.setdefault("network", {})
     network.setdefault("interface", "bat0")
     network.setdefault("subnet", "192.168.123.0/24")
-    network.setdefault(
-        "noise_threshold",
-        DEFAULT_NOISE_THRESHOLD,
-    )
-    network.setdefault(
-        "fading_coefficient",
-        DEFAULT_FADING_COEFFICIENT,
-    )
 
     wireless = network.setdefault("wireless", {})
     wireless.setdefault("ssid", "adhocNet")
     wireless.setdefault("mode", "g")
     wireless.setdefault("channel", 5)
-    wireless.setdefault("bssid", BSSID_CELL)
+    wireless.setdefault("bssid", DEFAULT_BSSID)
     wireless.setdefault("ht_cap", "HT40+")
 
-    propagation = network.setdefault("propagation", {})
+    medium = network.setdefault("medium", {})
+    medium.setdefault("mode", "interference")
+    medium.setdefault("noise_threshold_dbm", -91)
+    medium.setdefault("fading_coefficient", 3)
+
+    propagation = medium.setdefault("propagation", {})
     propagation.setdefault("model", "logDistance")
     propagation.setdefault("exponent", 3.5)
-
-    network.setdefault("link", {})
 
     mobility = normalized.setdefault("mobility", {})
     mobility.setdefault("enabled", False)
@@ -512,7 +496,7 @@ def apply_scenario_defaults(scenario):
 
     transmission = communication.setdefault("transmission", {})
     transmission.setdefault("count", 1)
-    transmission.setdefault("interval_ms", 1000)
+    transmission.setdefault("interval_ms", 0)
 
     readiness = normalized.setdefault("readiness", {})
     readiness.setdefault("expected_output", "READY")
@@ -521,6 +505,48 @@ def apply_scenario_defaults(scenario):
     termination = normalized.setdefault("termination", {})
     termination.setdefault("condition", "senders_completed")
     termination.setdefault("shutdown_timeout_seconds", 5)
+
+    measurements = normalized.setdefault("measurements", {})
+    measurements.setdefault("enabled", True)
+    measurements.setdefault("sampling_interval_seconds", 1)
+
+    process_config = measurements.setdefault("process", {})
+    process_config.setdefault("enabled", True)
+    process_config.setdefault("capture_stdout", True)
+    process_config.setdefault("capture_stderr", True)
+
+    packet_capture = measurements.setdefault(
+        "packet_capture",
+        {},
+    )
+    packet_capture.setdefault("enabled", True)
+    packet_capture.setdefault("interfaces", ["bat0"])
+    packet_capture.setdefault("snaplen", 0)
+    packet_capture.setdefault("immediate_mode", True)
+    packet_capture.setdefault("filter", "")
+
+    interface_counters = measurements.setdefault(
+        "interface_counters",
+        {},
+    )
+    interface_counters.setdefault("enabled", True)
+    interface_counters.setdefault(
+        "interfaces",
+        ["bat0", "wlan0"],
+    )
+
+    batman = measurements.setdefault("batman", {})
+    batman.setdefault("enabled", True)
+    batman.setdefault("collect_periodically", False)
+
+    wmediumd_config = measurements.setdefault("wmediumd", {})
+    wmediumd_config.setdefault("capture_log", False)
+
+    active_probes = measurements.setdefault(
+        "active_probes",
+        {},
+    )
+    active_probes.setdefault("enabled", False)
 
     results = normalized.setdefault("results", {})
     results.setdefault("directory", "./logs")
@@ -531,10 +557,8 @@ def apply_scenario_defaults(scenario):
 
         node.setdefault("type", "drone")
         node.setdefault("roles", [])
-        node.setdefault(
-            "image",
-            containers["image"],
-        )
+        node.setdefault("image", containers["image"])
+
         node.setdefault(
             "memory",
             (
@@ -543,430 +567,104 @@ def apply_scenario_defaults(scenario):
                 else DEFAULT_NODE_MEMORY
             ),
         )
-        node.setdefault("range", DEFAULT_NODE_RANGE)
-        node.setdefault("txpower", DEFAULT_TX_POWER)
+
+        node.setdefault(
+            "range_meters",
+            DEFAULT_NODE_RANGE_METERS,
+        )
+
+        node.setdefault(
+            "txpower_dbm",
+            DEFAULT_TXPOWER_DBM,
+        )
 
     return normalized
 
 
 def normalize_scenario(scenario):
-    normalized = expand_node_groups(scenario)
-    normalized = apply_scenario_defaults(normalized)
-    return normalized
+    return apply_defaults(
+        expand_node_groups(scenario)
+    )
 
 
-# ====== Scenario validation ======
+# =============================================================================
+# Validation
+# =============================================================================
 
-def require_mapping(parent, key, path):
-    value = parent.get(key)
-
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must be a mapping.")
-
-    return value
-
-
-def require_non_empty_string(parent, key, path):
-    value = parent.get(key)
-
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{path} must be a non-empty string.")
-
-    return value
-
-
-def require_positive_integer(parent, key, path):
-    value = parent.get(key)
-
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ValueError(f"{path} must be a positive integer.")
-
-    return value
-
-
-def require_non_negative_number(parent, key, path):
-    value = parent.get(key)
-
+def positive_number(value, path, allow_zero=False):
     if (
         not isinstance(value, (int, float))
         or isinstance(value, bool)
-        or value < 0
     ):
+        raise ValueError(f"{path} must be numeric.")
+
+    if allow_zero:
+        if value < 0:
+            raise ValueError(
+                f"{path} must be zero or greater."
+            )
+    elif value <= 0:
         raise ValueError(
-            f"{path} must be a non-negative number."
+            f"{path} must be greater than zero."
         )
 
-    return value
 
-
-def validate_binary_path(binary, path):
-    if not isinstance(binary, str) or not binary.strip():
-        raise ValueError(f"{path} must be a non-empty string.")
-
-    pure_path = PurePosixPath(binary)
-
-    if pure_path.is_absolute():
+def validate_binary_path(value, path):
+    if not isinstance(value, str) or not value:
         raise ValueError(
-            f"{path} must be relative to containers."
-            "binaries_directory."
+            f"{path} must be a non-empty string."
         )
 
-    if ".." in pure_path.parts:
+    binary_path = PurePosixPath(value)
+
+    if binary_path.is_absolute():
+        raise ValueError(
+            f"{path} must be relative to "
+            "containers.binaries_directory."
+        )
+
+    if ".." in binary_path.parts:
         raise ValueError(
             f"{path} must not contain '..'."
         )
 
 
-def validate_position(position, node_identity):
-    if not isinstance(position, dict):
-        raise ValueError(
-            f"Node {node_identity!r} must contain a position mapping."
-        )
-
-    for axis in ("x", "y", "z"):
-        value = position.get(axis)
-
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-        ):
-            raise ValueError(
-                f"Node {node_identity!r} position.{axis} "
-                "must be numeric."
-            )
-
-
-def validate_nodes(scenario, subnet):
-    nodes = scenario.get("nodes")
-
-    if not isinstance(nodes, list) or not nodes:
-        raise ValueError(
-            "The scenario must contain at least one node."
-        )
-
-    identities = set()
-    container_names = set()
-    node_addresses = set()
-    nodes_by_identity = {}
-
-    for index, node in enumerate(nodes):
-        path = f"nodes[{index}]"
-
-        if not isinstance(node, dict):
-            raise ValueError(f"{path} must be a mapping.")
-
-        identity = require_non_empty_string(
-            node,
-            "identity",
-            f"{path}.identity",
-        )
-
-        container_name = require_non_empty_string(
-            node,
-            "container_name",
-            f"{path}.container_name",
-        )
-
-        if identity in identities:
-            raise ValueError(
-                f"Duplicate node identity: {identity!r}"
-            )
-
-        if container_name in container_names:
-            raise ValueError(
-                f"Duplicate container name: {container_name!r}"
-            )
-
-        if not CONTAINER_NAME_PATTERN.fullmatch(container_name):
-            raise ValueError(
-                f"Invalid container name {container_name!r}. "
-                "Use letters, numbers, periods, underscores or hyphens."
-            )
-
-        wireless_interface = f"{container_name}-wlan0"
-
-        if len(wireless_interface) > 15:
-            raise ValueError(
-                f"Generated wireless interface "
-                f"{wireless_interface!r} exceeds Linux's 15-character "
-                "interface name limit. Use a shorter container_name."
-            )
-
-        identities.add(identity)
-        container_names.add(container_name)
-
-        ip_value = require_non_empty_string(
-            node,
-            "ip",
-            f"{path}.ip",
-        )
-
-        try:
-            node_interface = ipaddress.ip_interface(ip_value)
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid IP address for node {identity!r}: {ip_value}"
-            ) from exc
-
-        if node_interface.version != subnet.version:
-            raise ValueError(
-                f"Node {identity!r} and network subnet use "
-                "different IP versions."
-            )
-
-        if node_interface.ip not in subnet:
-            raise ValueError(
-                f"Node {identity!r} address {node_interface.ip} "
-                f"is outside subnet {subnet}."
-            )
-
-        if node_interface.ip in node_addresses:
-            raise ValueError(
-                f"Duplicate node IP address: {node_interface.ip}"
-            )
-
-        node_addresses.add(node_interface.ip)
-
-        roles = node.get("roles")
-
-        if not isinstance(roles, list):
-            raise ValueError(
-                f"{path}.roles must be a list."
-            )
-
-        invalid_roles = set(roles) - SUPPORTED_ROLES
-
-        if invalid_roles:
-            raise ValueError(
-                f"Node {identity!r} has unsupported roles: "
-                f"{', '.join(sorted(invalid_roles))}"
-            )
-
-        if len(roles) != len(set(roles)):
-            raise ValueError(
-                f"Node {identity!r} contains duplicate roles."
-            )
-
-        validate_position(
-            node.get("position"),
-            identity,
-        )
-
-        require_non_empty_string(
-            node,
-            "image",
-            f"{path}.image",
-        )
-
-        require_non_empty_string(
-            node,
-            "memory",
-            f"{path}.memory",
-        )
-
-        require_non_negative_number(
-            node,
-            "range",
-            f"{path}.range",
-        )
-
-        require_non_negative_number(
-            node,
-            "txpower",
-            f"{path}.txpower",
-        )
-
-        nodes_by_identity[identity] = node
-
-    return nodes_by_identity
-
-
-def validate_communication(scenario, nodes_by_identity):
-    communication = scenario["communication"]
-
-    mode = require_non_empty_string(
-        communication,
-        "mode",
-        "communication.mode",
-    )
-
-    if mode not in SUPPORTED_COMMUNICATION_MODES:
-        raise ValueError(
-            f"Unsupported communication mode: {mode!r}. "
-            f"Supported values: "
-            f"{', '.join(sorted(SUPPORTED_COMMUNICATION_MODES))}"
-        )
-
-    port = require_positive_integer(
-        communication,
-        "port",
-        "communication.port",
-    )
-
-    if port > 65535:
-        raise ValueError(
-            "communication.port must be between 1 and 65535."
-        )
-
-    transmission = require_mapping(
-        communication,
-        "transmission",
-        "communication.transmission",
-    )
-
-    require_positive_integer(
-        transmission,
-        "count",
-        "communication.transmission.count",
-    )
-
-    require_non_negative_number(
-        transmission,
-        "interval_ms",
-        "communication.transmission.interval_ms",
-    )
-
-    flows = communication.get("flows")
-    broadcasts = communication.get("broadcasts")
-
-    if not isinstance(flows, list):
-        raise ValueError(
-            "communication.flows must be a list."
-        )
-
-    if not isinstance(broadcasts, list):
-        raise ValueError(
-            "communication.broadcasts must be a list."
-        )
-
-    for index, flow in enumerate(flows):
-        path = f"communication.flows[{index}]"
-
-        if not isinstance(flow, dict):
-            raise ValueError(f"{path} must be a mapping.")
-
-        source = require_non_empty_string(
-            flow,
-            "source",
-            f"{path}.source",
-        )
-
-        destination = require_non_empty_string(
-            flow,
-            "destination",
-            f"{path}.destination",
-        )
-
-        if source not in nodes_by_identity:
-            raise ValueError(
-                f"{path}.source references unknown node {source!r}."
-            )
-
-        if destination not in nodes_by_identity:
-            raise ValueError(
-                f"{path}.destination references unknown node "
-                f"{destination!r}."
-            )
-
-        if "sender" not in nodes_by_identity[source]["roles"]:
-            raise ValueError(
-                f"Flow source {source!r} does not have the "
-                "sender role."
-            )
-
-        if "receiver" not in nodes_by_identity[destination]["roles"]:
-            raise ValueError(
-                f"Flow destination {destination!r} does not have "
-                "the receiver role."
-            )
-
-    if mode == "unicast" and not flows:
-        raise ValueError(
-            "Unicast communication requires at least one flow."
-        )
-
-    for index, broadcast in enumerate(broadcasts):
-        path = f"communication.broadcasts[{index}]"
-
-        if isinstance(broadcast, str):
-            source = broadcast
-        elif isinstance(broadcast, dict):
-            source = require_non_empty_string(
-                broadcast,
-                "source",
-                f"{path}.source",
-            )
-        else:
-            raise ValueError(
-                f"{path} must be a node identity string or mapping."
-            )
-
-        if source not in nodes_by_identity:
-            raise ValueError(
-                f"{path} references unknown node {source!r}."
-            )
-
-        if "sender" not in nodes_by_identity[source]["roles"]:
-            raise ValueError(
-                f"Broadcast source {source!r} does not have the "
-                "sender role."
-            )
-
-    if mode == "broadcast" and not broadcasts:
-        raise ValueError(
-            "Broadcast communication requires at least one "
-            "broadcast source."
-        )
-
-
 def validate_scenario(scenario):
-    experiment = require_mapping(
-        scenario,
-        "experiment",
-        "experiment",
-    )
+    experiment = scenario["experiment"]
 
-    require_non_empty_string(
-        experiment,
-        "id",
-        "experiment.id",
-    )
+    if not isinstance(experiment.get("id"), str):
+        raise ValueError(
+            "experiment.id must be a string."
+        )
 
-    seed = experiment.get("seed")
-
-    if not isinstance(seed, int) or isinstance(seed, bool):
+    if not isinstance(experiment.get("seed"), int):
         raise ValueError(
             "experiment.seed must be an integer."
         )
 
-    require_positive_integer(
-        experiment,
-        "duration_seconds",
+    positive_number(
+        experiment.get("duration_seconds"),
         "experiment.duration_seconds",
     )
 
-    containers = require_mapping(
-        scenario,
-        "containers",
-        "containers",
-    )
+    containers = scenario["containers"]
 
-    require_non_empty_string(
-        containers,
-        "image",
-        "containers.image",
-    )
-
-    binary_directory = require_non_empty_string(
-        containers,
-        "binaries_directory",
-        "containers.binaries_directory",
-    )
-
-    if not PurePosixPath(binary_directory).is_absolute():
+    if not isinstance(containers.get("image"), str):
         raise ValueError(
-            "containers.binaries_directory must be an absolute "
-            "container path."
+            "containers.image must be a string."
+        )
+
+    binaries_directory = containers.get(
+        "binaries_directory"
+    )
+
+    if (
+        not isinstance(binaries_directory, str)
+        or not PurePosixPath(binaries_directory).is_absolute()
+    ):
+        raise ValueError(
+            "containers.binaries_directory must be "
+            "an absolute container path."
         )
 
     validate_binary_path(
@@ -979,247 +677,450 @@ def validate_scenario(scenario):
         "containers.receiver_binary",
     )
 
-    network = require_mapping(
-        scenario,
-        "network",
-        "network",
-    )
+    execution = scenario["execution"]
 
-    network_interface = require_non_empty_string(
-        network,
-        "interface",
-        "network.interface",
-    )
-
-    # Mininet-WiFi's batman_adv protocol creates bat0. Supporting a
-    # differently named BATMAN interface requires additional commands.
-    if network_interface != "bat0":
+    if not isinstance(execution.get("enabled"), bool):
         raise ValueError(
-            "This first implementation currently supports only "
+            "execution.enabled must be true or false."
+        )
+
+    missing_policy = execution.get("missing_binaries")
+
+    if missing_policy not in SUPPORTED_MISSING_BINARY_POLICIES:
+        raise ValueError(
+            "execution.missing_binaries must be one of: "
+            + ", ".join(
+                sorted(SUPPORTED_MISSING_BINARY_POLICIES)
+            )
+        )
+
+    network = scenario["network"]
+
+    if network.get("interface") != "bat0":
+        raise ValueError(
+            "This implementation currently requires "
             "network.interface: bat0."
         )
 
-    subnet_value = require_non_empty_string(
-        network,
-        "subnet",
-        "network.subnet",
-    )
-
     try:
         subnet = ipaddress.ip_network(
-            subnet_value,
+            network.get("subnet"),
             strict=False,
         )
     except ValueError as exc:
         raise ValueError(
-            f"Invalid network.subnet: {subnet_value}"
+            f"Invalid network.subnet: {network.get('subnet')}"
         ) from exc
 
-    wireless = require_mapping(
-        network,
-        "wireless",
-        "network.wireless",
-    )
+    wireless = network["wireless"]
 
-    require_non_empty_string(
-        wireless,
-        "ssid",
-        "network.wireless.ssid",
-    )
+    if not isinstance(wireless.get("ssid"), str):
+        raise ValueError(
+            "network.wireless.ssid must be a string."
+        )
 
-    require_non_empty_string(
-        wireless,
-        "mode",
-        "network.wireless.mode",
-    )
+    if not isinstance(wireless.get("mode"), str):
+        raise ValueError(
+            "network.wireless.mode must be a string."
+        )
 
-    channel = require_positive_integer(
-        wireless,
-        "channel",
+    positive_number(
+        wireless.get("channel"),
         "network.wireless.channel",
     )
 
-    if channel > 196:
+    medium = network["medium"]
+    medium_mode = medium.get("mode")
+
+    if medium_mode not in SUPPORTED_MEDIUM_MODES:
         raise ValueError(
-            "network.wireless.channel is outside the supported "
-            "Wi-Fi channel range."
+            f"Unsupported network.medium.mode: "
+            f"{medium_mode!r}. "
+            "Currently supported: interference."
         )
 
-    bssid = require_non_empty_string(
-        wireless,
-        "bssid",
-        "network.wireless.bssid",
+    positive_number(
+        medium.get("fading_coefficient"),
+        "network.medium.fading_coefficient",
+        allow_zero=True,
     )
 
-    try:
-        bssid_parts = bssid.split(":")
-        valid_bssid = (
-            len(bssid_parts) == 6
-            and all(
-                len(part) == 2
-                and 0 <= int(part, 16) <= 255
-                for part in bssid_parts
+    if not isinstance(
+        medium.get("noise_threshold_dbm"),
+        (int, float),
+    ):
+        raise ValueError(
+            "network.medium.noise_threshold_dbm "
+            "must be numeric."
+        )
+
+    propagation = medium["propagation"]
+
+    if not isinstance(propagation.get("model"), str):
+        raise ValueError(
+            "network.medium.propagation.model "
+            "must be a string."
+        )
+
+    positive_number(
+        propagation.get("exponent"),
+        "network.medium.propagation.exponent",
+    )
+
+    nodes = scenario.get("nodes")
+
+    if not isinstance(nodes, list) or not nodes:
+        raise ValueError(
+            "The scenario must contain at least one node."
+        )
+
+    identities = set()
+    container_names = set()
+    addresses = set()
+    nodes_by_identity = {}
+
+    for index, node in enumerate(nodes):
+        path = f"nodes[{index}]"
+
+        if not isinstance(node, dict):
+            raise ValueError(
+                f"{path} must be a mapping."
             )
-        )
-    except ValueError:
-        valid_bssid = False
 
-    if not valid_bssid:
+        identity = node.get("identity")
+        container_name = node.get("container_name")
+
+        if not isinstance(identity, str) or not identity:
+            raise ValueError(
+                f"{path}.identity is invalid."
+            )
+
+        if identity in identities:
+            raise ValueError(
+                f"Duplicate identity: {identity!r}"
+            )
+
+        if (
+            not isinstance(container_name, str)
+            or not CONTAINER_NAME_PATTERN.fullmatch(
+                container_name
+            )
+        ):
+            raise ValueError(
+                f"{path}.container_name is invalid."
+            )
+
+        if container_name in container_names:
+            raise ValueError(
+                f"Duplicate container name: "
+                f"{container_name!r}"
+            )
+
+        wireless_interface = f"{container_name}-wlan0"
+
+        if len(wireless_interface) > 15:
+            raise ValueError(
+                f"Interface name {wireless_interface!r} "
+                "exceeds Linux's 15-character limit."
+            )
+
+        try:
+            node_address = ipaddress.ip_interface(
+                node.get("ip")
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid IP for node {identity!r}: "
+                f"{node.get('ip')}"
+            ) from exc
+
+        if node_address.ip not in subnet:
+            raise ValueError(
+                f"Node {identity!r} is outside "
+                f"subnet {subnet}."
+            )
+
+        if node_address.ip in addresses:
+            raise ValueError(
+                f"Duplicate IP address: {node_address.ip}"
+            )
+
+        roles = node.get("roles")
+
+        if not isinstance(roles, list):
+            raise ValueError(
+                f"{path}.roles must be a list."
+            )
+
+        invalid_roles = set(roles) - SUPPORTED_ROLES
+
+        if invalid_roles:
+            raise ValueError(
+                f"Invalid roles for {identity!r}: "
+                f"{sorted(invalid_roles)}"
+            )
+
+        position = node.get("position")
+
+        if not isinstance(position, dict):
+            raise ValueError(
+                f"{path}.position must be a mapping."
+            )
+
+        for axis in ("x", "y", "z"):
+            if not isinstance(
+                position.get(axis),
+                (int, float),
+            ):
+                raise ValueError(
+                    f"{path}.position.{axis} must be numeric."
+                )
+
+        positive_number(
+            node.get("range_meters"),
+            f"{path}.range_meters",
+        )
+
+        positive_number(
+            node.get("txpower_dbm"),
+            f"{path}.txpower_dbm",
+            allow_zero=True,
+        )
+
+        identities.add(identity)
+        container_names.add(container_name)
+        addresses.add(node_address.ip)
+        nodes_by_identity[identity] = node
+
+    communication = scenario["communication"]
+    communication_mode = communication.get("mode")
+
+    if communication_mode not in SUPPORTED_COMMUNICATION_MODES:
         raise ValueError(
-            f"Invalid network.wireless.bssid: {bssid!r}"
+            "communication.mode must be unicast or broadcast."
         )
 
-    propagation = require_mapping(
-        network,
-        "propagation",
-        "network.propagation",
-    )
-
-    require_non_empty_string(
-        propagation,
-        "model",
-        "network.propagation.model",
-    )
-
-    require_non_negative_number(
-        propagation,
-        "exponent",
-        "network.propagation.exponent",
-    )
-
-    noise_threshold = network.get("noise_threshold")
+    port = communication.get("port")
 
     if (
-        not isinstance(noise_threshold, (int, float))
-        or isinstance(noise_threshold, bool)
+        not isinstance(port, int)
+        or isinstance(port, bool)
+        or port < 1
+        or port > 65535
     ):
         raise ValueError(
-            "network.noise_threshold must be numeric."
+            "communication.port must be between 1 and 65535."
         )
 
-    fading_coefficient = network.get("fading_coefficient")
+    count = communication["transmission"].get("count")
 
     if (
-        not isinstance(fading_coefficient, (int, float))
-        or isinstance(fading_coefficient, bool)
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 1
     ):
         raise ValueError(
-            "network.fading_coefficient must be numeric."
+            "communication.transmission.count "
+            "must be a positive integer."
         )
 
-    nodes_by_identity = validate_nodes(
-        scenario,
-        subnet,
-    )
+    flows = communication.get("flows")
 
-    mobility = require_mapping(
-        scenario,
-        "mobility",
-        "mobility",
-    )
-
-    enabled = mobility.get("enabled")
-
-    if not isinstance(enabled, bool):
+    if not isinstance(flows, list):
         raise ValueError(
-            "mobility.enabled must be true or false."
+            "communication.flows must be a list."
         )
 
-    model = require_non_empty_string(
-        mobility,
-        "model",
-        "mobility.model",
-    )
+    for index, flow in enumerate(flows):
+        if not isinstance(flow, dict):
+            raise ValueError(
+                f"communication.flows[{index}] "
+                "must be a mapping."
+            )
 
-    if enabled and model != "static":
+        source = flow.get("source")
+        destination = flow.get("destination")
+
+        if source not in nodes_by_identity:
+            raise ValueError(
+                f"Unknown flow source: {source!r}"
+            )
+
+        if destination not in nodes_by_identity:
+            raise ValueError(
+                f"Unknown flow destination: {destination!r}"
+            )
+
+        if "sender" not in nodes_by_identity[source]["roles"]:
+            raise ValueError(
+                f"Flow source {source!r} does not have "
+                "the sender role."
+            )
+
+        if (
+            "receiver"
+            not in nodes_by_identity[destination]["roles"]
+        ):
+            raise ValueError(
+                f"Flow destination {destination!r} "
+                "does not have the receiver role."
+            )
+
+    broadcasts = communication.get("broadcasts")
+
+    if not isinstance(broadcasts, list):
         raise ValueError(
-            "Dynamic mobility is not implemented in this first "
-            "delivery. Use mobility.enabled: false and "
-            "mobility.model: static."
+            "communication.broadcasts must be a list."
         )
 
-    validate_communication(
-        scenario,
-        nodes_by_identity,
-    )
+    if communication_mode == "unicast" and not flows:
+        raise ValueError(
+            "Unicast mode requires at least one flow."
+        )
 
-    readiness = require_mapping(
-        scenario,
-        "readiness",
-        "readiness",
-    )
+    if communication_mode == "broadcast" and not broadcasts:
+        raise ValueError(
+            "Broadcast mode requires at least one source."
+        )
 
-    require_non_empty_string(
-        readiness,
-        "expected_output",
-        "readiness.expected_output",
-    )
+    for broadcast in broadcasts:
+        source = (
+            broadcast
+            if isinstance(broadcast, str)
+            else broadcast.get("source")
+            if isinstance(broadcast, dict)
+            else None
+        )
 
-    require_positive_integer(
-        readiness,
-        "timeout_seconds",
+        if source not in nodes_by_identity:
+            raise ValueError(
+                f"Unknown broadcast source: {source!r}"
+            )
+
+        if "sender" not in nodes_by_identity[source]["roles"]:
+            raise ValueError(
+                f"Broadcast source {source!r} does not have "
+                "the sender role."
+            )
+
+    mobility = scenario["mobility"]
+
+    if mobility.get("enabled"):
+        raise ValueError(
+            "Dynamic mobility is not implemented yet. "
+            "Use mobility.enabled: false."
+        )
+
+    readiness = scenario["readiness"]
+
+    if not isinstance(
+        readiness.get("expected_output"),
+        str,
+    ):
+        raise ValueError(
+            "readiness.expected_output must be a string."
+        )
+
+    positive_number(
+        readiness.get("timeout_seconds"),
         "readiness.timeout_seconds",
     )
 
-    termination = require_mapping(
-        scenario,
-        "termination",
-        "termination",
-    )
+    termination = scenario["termination"]
 
-    condition = require_non_empty_string(
-        termination,
-        "condition",
-        "termination.condition",
-    )
-
-    if condition not in SUPPORTED_TERMINATION_CONDITIONS:
+    if (
+        termination.get("condition")
+        not in SUPPORTED_TERMINATION_CONDITIONS
+    ):
         raise ValueError(
-            f"Unsupported termination condition: {condition!r}."
+            "termination.condition must be "
+            "senders_completed or duration_elapsed."
         )
 
-    require_positive_integer(
-        termination,
-        "shutdown_timeout_seconds",
+    positive_number(
+        termination.get("shutdown_timeout_seconds"),
         "termination.shutdown_timeout_seconds",
     )
 
-    results = require_mapping(
-        scenario,
-        "results",
-        "results",
+    measurements = scenario["measurements"]
+
+    positive_number(
+        measurements.get("sampling_interval_seconds"),
+        "measurements.sampling_interval_seconds",
     )
 
-    require_non_empty_string(
-        results,
-        "directory",
-        "results.directory",
+    packet_capture = measurements["packet_capture"]
+
+    if not isinstance(
+        packet_capture.get("interfaces"),
+        list,
+    ):
+        raise ValueError(
+            "measurements.packet_capture.interfaces "
+            "must be a list."
+        )
+
+    counters = measurements["interface_counters"]
+
+    if not isinstance(counters.get("interfaces"), list):
+        raise ValueError(
+            "measurements.interface_counters.interfaces "
+            "must be a list."
+        )
+
+
+# =============================================================================
+# Environment and result directories
+# =============================================================================
+
+def create_result_directory(scenario):
+    configured = Path(
+        scenario["results"]["directory"]
     )
 
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
 
-# ====== Binary validation ======
-
-def relative_binary_path(binary):
-    parts = [
-        part
-        for part in PurePosixPath(binary).parts
-        if part not in ("", ".")
-    ]
-
-    return os.path.join(*parts)
-
-
-def container_binary_path(container_directory, binary):
-    parts = [
-        part
-        for part in PurePosixPath(binary).parts
-        if part not in ("", ".")
-    ]
-
-    return posixpath.join(
-        container_directory,
-        *parts,
+    experiment_name = safe_name(
+        scenario["experiment"]["id"]
     )
+
+    timestamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
+
+    run_directory = (
+        configured.resolve()
+        / experiment_name
+        / timestamp
+    )
+
+    for directory in (
+        run_directory,
+        run_directory / "processes",
+        run_directory / "pcaps",
+        run_directory / "counters",
+        run_directory / "batman",
+        run_directory / "tcpdump",
+        run_directory / "wmediumd",
+    ):
+        directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+    normalized_scenario = copy.deepcopy(scenario)
+    normalized_scenario.pop("_scenario_file", None)
+
+    with (
+        run_directory / "scenario.yml"
+    ).open("w", encoding="utf-8") as output:
+        yaml.safe_dump(
+            normalized_scenario,
+            output,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+
+    return run_directory
 
 
 def required_binary_roles(scenario):
@@ -1231,98 +1132,83 @@ def required_binary_roles(scenario):
     return roles
 
 
-def validate_environment(scenario):
-    """
-    Validate the host directory and binaries required by the scenario.
-
-    The directory is mandatory because it is mounted in the containers.
-    Missing binaries produce warnings in this first delivery, allowing
-    topology and network development before the binaries are finished.
-    """
-
-    if not os.path.isdir(BIN_HOST_DIR):
-        raise RuntimeError(
-            f"Binary directory not found: {BIN_HOST_DIR}\n"
-            "Create the bin/ directory and place sender/receiver "
-            "inside it before starting the topology."
-        )
-
+def inspect_host_binaries(scenario):
     containers = scenario["containers"]
     roles = required_binary_roles(scenario)
 
-    binaries = []
+    result = {
+        "sender": {
+            "required": "sender" in roles,
+            "path": str(
+                host_binary_path(
+                    containers["sender_binary"]
+                )
+            ),
+            "available": True,
+        },
+        "receiver": {
+            "required": "receiver" in roles,
+            "path": str(
+                host_binary_path(
+                    containers["receiver_binary"]
+                )
+            ),
+            "available": True,
+        },
+    }
 
-    if "sender" in roles:
-        binaries.append(
-            (
-                "sender",
-                containers["sender_binary"],
-            )
+    for role, entry in result.items():
+        if not entry["required"]:
+            continue
+
+        binary_path = Path(entry["path"])
+
+        entry["available"] = (
+            binary_path.is_file()
+            and os.access(binary_path, os.X_OK)
         )
 
-    if "receiver" in roles:
-        binaries.append(
-            (
-                "receiver",
-                containers["receiver_binary"],
-            )
-        )
-
-    for role, configured_binary in binaries:
-        host_binary = os.path.join(
-            BIN_HOST_DIR,
-            relative_binary_path(configured_binary),
-        )
-
-        if not os.path.isfile(host_binary):
-            info(
-                f"*** WARNING: {role} binary not found: "
-                f"{host_binary}\n"
-            )
-        elif not os.access(host_binary, os.X_OK):
-            info(
-                f"*** WARNING: {role} binary is not executable: "
-                f"{host_binary}\n"
-            )
+    return result
 
 
-# ====== Commands executed inside containers ======
+def missing_required_binaries(binary_status):
+    return [
+        role
+        for role, entry in binary_status.items()
+        if entry["required"] and not entry["available"]
+    ]
 
-def run(
+
+# =============================================================================
+# Container commands
+# =============================================================================
+
+def run_command(
     node,
     command,
     description="",
     must_succeed=True,
 ):
-    """
-    Run a command inside a node and retrieve its exit code.
+    marker = "__TESTBED_EXIT_CODE__="
 
-    Returns:
-        tuple[str, int]: command output and exit code.
-    """
-
-    wrapped_command = (
+    wrapped = (
         f"{command}\n"
-        "testbed_exit_code=$?\n"
-        f"printf '\\n{EXIT_CODE_MARKER}%s\\n' "
-        "\"$testbed_exit_code\""
+        "testbed_status=$?\n"
+        f"printf '\\n{marker}%s\\n' \"$testbed_status\""
     )
 
-    raw_output = node.cmd(
-        f"sh -c {shlex.quote(wrapped_command)}"
-    )
+    output = node.cmd(
+        f"sh -c {shlex.quote(wrapped)}"
+    ) or ""
 
-    output = raw_output or ""
     exit_code = None
-
-    lines = output.splitlines()
     visible_lines = []
 
-    for line in lines:
-        if line.startswith(EXIT_CODE_MARKER):
+    for line in output.splitlines():
+        if line.startswith(marker):
             try:
                 exit_code = int(
-                    line[len(EXIT_CODE_MARKER):]
+                    line[len(marker):]
                 )
             except ValueError:
                 exit_code = None
@@ -1332,48 +1218,31 @@ def run(
     clean_output = "\n".join(visible_lines).strip()
 
     if exit_code is None:
-        message = (
-            f"Could not determine command exit code on {node.name}: "
-            f"{description or command}"
-        )
-
         if must_succeed:
-            raise RuntimeError(message)
+            raise RuntimeError(
+                f"Could not determine exit code on "
+                f"{node.name}: {description or command}"
+            )
 
-        info(f"*** WARNING: {message}\n")
         return clean_output, -1
 
     if exit_code != 0:
-        info(
-            f"\n*** ERROR on {node.name}: "
-            f"{description or command}\n"
-        )
-        info(f"*** Command: {command}\n")
-        info(f"*** Exit code: {exit_code}\n")
-
-        if clean_output:
-            info(f"*** Output:\n{clean_output}\n")
-
         if must_succeed:
             raise RuntimeError(
                 f"Command failed on {node.name}: "
-                f"{description or command} "
-                f"(exit code {exit_code})"
+                f"{description or command}; "
+                f"exit code={exit_code}; "
+                f"output={clean_output!r}"
             )
-
-        info(
-            f"*** WARNING: continuing despite the error "
-            f"on {node.name}\n"
-        )
 
     return clean_output, exit_code
 
 
-def ensure_iface_exists(node, interface):
-    run(
+def ensure_interface(node, interface):
+    run_command(
         node,
         f"ip link show dev {shlex.quote(interface)}",
-        f"check whether {interface} exists",
+        f"check interface {interface}",
     )
 
 
@@ -1386,79 +1255,70 @@ def force_adhoc_cell(
 ):
     quoted_interface = shlex.quote(interface)
 
-    run(
+    run_command(
         node,
         "command -v iwconfig",
-        "check whether iwconfig is installed",
+        "check iwconfig",
     )
 
-    run(
+    run_command(
         node,
         f"ip link set dev {quoted_interface} down",
         f"bring {interface} down",
         must_succeed=False,
     )
 
-    run(
+    run_command(
         node,
         (
             f"iwconfig {quoted_interface} "
-            f"mode ad-hoc "
+            "mode ad-hoc "
             f"essid {shlex.quote(ssid)} "
             f"ap {shlex.quote(bssid)} "
             f"channel {int(channel)}"
         ),
-        f"configure ad-hoc mode on {interface}",
+        f"configure ad-hoc cell on {interface}",
     )
 
-    run(
+    run_command(
         node,
         f"ip link set dev {quoted_interface} up",
         f"bring {interface} up",
     )
 
 
-def set_mtu_required(node, interface, mtu):
-    ensure_iface_exists(node, interface)
-
-    run(
-        node,
-        f"ip link set dev {shlex.quote(interface)} mtu {int(mtu)}",
-        f"set MTU {mtu} on {interface}",
-    )
-
-
-def set_mtu_tolerant(
+def configure_mtu(
     node,
     interface,
-    desired_mtu,
-    fallback_mtu,
+    desired,
+    fallback=None,
 ):
-    ensure_iface_exists(node, interface)
+    ensure_interface(node, interface)
 
-    _, exit_code = run(
+    _, exit_code = run_command(
         node,
         (
             f"ip link set dev {shlex.quote(interface)} "
-            f"mtu {int(desired_mtu)}"
+            f"mtu {int(desired)}"
         ),
-        f"set MTU {desired_mtu} on {interface}",
-        must_succeed=False,
+        f"set MTU {desired} on {interface}",
+        must_succeed=fallback is None,
     )
 
-    if exit_code != 0:
+    if exit_code != 0 and fallback is not None:
         info(
-            f"*** {node.name}: {interface} did not accept "
-            f"MTU {desired_mtu}. Using MTU {fallback_mtu}.\n"
+            f"*** {node.name}: using MTU "
+            f"{fallback} on {interface}\n"
         )
 
-        run(
+        run_command(
             node,
             (
-                f"ip link set dev {shlex.quote(interface)} "
-                f"mtu {int(fallback_mtu)}"
+                f"ip link set dev "
+                f"{shlex.quote(interface)} "
+                f"mtu {int(fallback)}"
             ),
-            f"set fallback MTU {fallback_mtu} on {interface}",
+            f"set fallback MTU on {interface}",
         )
 
 
@@ -1467,15 +1327,15 @@ def assign_interface_ip(
     interface,
     ip_cidr,
 ):
-    ensure_iface_exists(node, interface)
+    ensure_interface(node, interface)
 
-    run(
+    run_command(
         node,
         f"ip link set dev {shlex.quote(interface)} up",
         f"bring {interface} up",
     )
 
-    run(
+    run_command(
         node,
         (
             f"ip addr flush dev {shlex.quote(interface)} && "
@@ -1486,18 +1346,11 @@ def assign_interface_ip(
     )
 
 
-# ====== Topology helpers ======
+# =============================================================================
+# Network construction
+# =============================================================================
 
 def generate_mac(index):
-    """
-    Generate a deterministic locally administered MAC address.
-    """
-
-    if index < 1 or index >= (1 << 40):
-        raise ValueError(
-            f"Cannot generate MAC address for node index {index}."
-        )
-
     return "02:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}".format(
         (index >> 32) & 0xFF,
         (index >> 24) & 0xFF,
@@ -1508,23 +1361,9 @@ def generate_mac(index):
 
 
 def generate_management_ip(index):
-    """
-    Generate the internal Mininet-WiFi address.
-
-    The operational experiment address is assigned separately to bat0.
-    """
-
-    management_network = ipaddress.ip_network(
-        "10.0.0.0/8"
-    )
-
-    if index < 1 or index >= management_network.num_addresses - 1:
-        raise ValueError(
-            f"Cannot generate management IP for node index {index}."
-        )
-
-    address = management_network.network_address + index
-    return f"{address}/{management_network.prefixlen}"
+    network = ipaddress.ip_network("10.0.0.0/8")
+    address = network.network_address + index
+    return f"{address}/{network.prefixlen}"
 
 
 def format_position(position):
@@ -1536,14 +1375,14 @@ def format_position(position):
 
 
 def create_network(scenario):
-    network = scenario["network"]
-    propagation = network["propagation"]
+    medium = scenario["network"]["medium"]
+    propagation = medium["propagation"]
 
     net = Containernet(
         link=wmediumd,
         wmediumd_mode=interference,
-        noise_th=network["noise_threshold"],
-        fading_cof=network["fading_coefficient"],
+        noise_th=medium["noise_threshold_dbm"],
+        fading_cof=medium["fading_coefficient"],
     )
 
     net.setPropagationModel(
@@ -1557,45 +1396,52 @@ def create_network(scenario):
 def create_stations(
     net,
     scenario,
-    binary_volume,
+    run_directory,
 ):
+    container_directory = scenario["containers"][
+        "binaries_directory"
+    ]
+
+    volumes = [
+        (
+            f"{BIN_HOST_DIR.resolve()}:"
+            f"{container_directory}:ro"
+        ),
+        (
+            f"{run_directory.resolve()}:"
+            f"{RESULTS_CONTAINER_DIR}:rw"
+        ),
+    ]
+
     stations = {}
 
     info("*** Adding Docker stations\n")
 
-    for index, node_config in enumerate(
+    for index, node in enumerate(
         scenario["nodes"],
         start=1,
     ):
-        identity = node_config["identity"]
-        container_name = node_config["container_name"]
+        identity = node["identity"]
+        container_name = node["container_name"]
 
-        station_arguments = {
-            "cls": DockerSta,
-            "mac": generate_mac(index),
-            "ip": generate_management_ip(index),
-            "position": format_position(
-                node_config["position"]
-            ),
-            "dimage": node_config["image"],
-            "privileged": True,
-            "mem_limit": node_config["memory"],
-            "range": node_config["range"],
-            "txpower": node_config["txpower"],
-            "volumes": binary_volume,
-        }
+        stations[identity] = net.addStation(
+            container_name,
+            cls=DockerSta,
+            mac=generate_mac(index),
+            ip=generate_management_ip(index),
+            position=format_position(node["position"]),
+            dimage=node["image"],
+            privileged=True,
+            mem_limit=node["memory"],
+            range=node["range_meters"],
+            txpower=node["txpower_dbm"],
+            volumes=volumes,
+        )
 
         info(
-            f"*** Adding {identity} as container "
+            f"*** Added {identity} as "
             f"{container_name}\n"
         )
-
-        station = net.addStation(
-            container_name,
-            **station_arguments,
-        )
-
-        stations[identity] = station
 
     return stations
 
@@ -1609,170 +1455,64 @@ def configure_adhoc_links(
 
     info("*** Creating BATMAN-adv ad-hoc links\n")
 
-    for node_config in scenario["nodes"]:
-        identity = node_config["identity"]
-        station = stations[identity]
-        wireless_interface = f"{station.name}-wlan0"
+    for node in scenario["nodes"]:
+        station = stations[node["identity"]]
+        wlan = f"{station.name}-wlan0"
 
-        link_arguments = {
+        arguments = {
             "cls": adhoc,
-            "intf": wireless_interface,
+            "intf": wlan,
             "ssid": wireless["ssid"],
             "proto": "batman_adv",
             "mode": wireless["mode"],
             "channel": wireless["channel"],
         }
 
-        ht_cap = wireless.get("ht_cap")
+        if wireless.get("ht_cap"):
+            arguments["ht_cap"] = wireless["ht_cap"]
 
-        if ht_cap:
-            link_arguments["ht_cap"] = ht_cap
-
-        net.addLink(
-            station,
-            **link_arguments,
-        )
+        net.addLink(station, **arguments)
 
 
-def check_mounted_binaries(
-    scenario,
-    stations,
-):
-    containers = scenario["containers"]
-    container_directory = containers["binaries_directory"]
-    roles = required_binary_roles(scenario)
-
-    info("*** Checking mounted binary directory\n")
-
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
-
-        run(
-            station,
-            f"test -d {shlex.quote(container_directory)}",
-            "check the mounted binary directory",
-        )
-
-    binaries = []
-
-    if "sender" in roles:
-        binaries.append(
-            (
-                "sender",
-                container_binary_path(
-                    container_directory,
-                    containers["sender_binary"],
-                ),
-            )
-        )
-
-    if "receiver" in roles:
-        binaries.append(
-            (
-                "receiver",
-                container_binary_path(
-                    container_directory,
-                    containers["receiver_binary"],
-                ),
-            )
-        )
-
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
-
-        for role in node_config["roles"]:
-            binary = next(
-                binary_path
-                for binary_role, binary_path in binaries
-                if binary_role == role
-            )
-
-            _, exit_code = run(
-                station,
-                f"test -x {shlex.quote(binary)}",
-                f"check the {role} binary",
-                must_succeed=False,
-            )
-
-            if exit_code != 0:
-                info(
-                    f"*** WARNING: {station.name} requires the "
-                    f"{role} binary, but it is missing or not "
-                    f"executable: {binary}\n"
-                )
-
-
-def configure_node_interfaces(
+def configure_interfaces(
     scenario,
     stations,
 ):
     network = scenario["network"]
     wireless = network["wireless"]
-    batman_interface = network["interface"]
+    operational_interface = network["interface"]
 
-    info("*** Checking WLAN interfaces\n")
+    info("*** Configuring node interfaces\n")
 
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
-        wireless_interface = f"{station.name}-wlan0"
-
-        ensure_iface_exists(
-            station,
-            wireless_interface,
-        )
-
-    info("*** Configuring the ad-hoc cell\n")
-
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
-        wireless_interface = f"{station.name}-wlan0"
+    for node in scenario["nodes"]:
+        station = stations[node["identity"]]
+        wlan = f"{station.name}-wlan0"
 
         force_adhoc_cell(
             station,
-            wireless_interface,
+            wlan,
             wireless["ssid"],
             wireless["bssid"],
             wireless["channel"],
         )
 
-    info("*** Configuring WLAN MTU\n")
-
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
-        wireless_interface = f"{station.name}-wlan0"
-
-        set_mtu_required(
+        configure_mtu(
             station,
-            wireless_interface,
+            wlan,
             WLAN_MTU,
         )
 
-    info(
-        f"*** Configuring {batman_interface} MTU\n"
-    )
-
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
-
-        set_mtu_tolerant(
+        configure_mtu(
             station,
-            batman_interface,
+            operational_interface,
             BAT_MTU_DESIRED,
-            MTU_FALLBACK,
+            fallback=MTU_FALLBACK,
         )
-
-    info(
-        f"*** Assigning IP addresses to "
-        f"{batman_interface}\n"
-    )
-
-    for node_config in scenario["nodes"]:
-        station = stations[node_config["identity"]]
 
         assign_interface_ip(
             station,
-            batman_interface,
-            node_config["ip"],
+            operational_interface,
+            node["ip"],
         )
 
 
@@ -1780,8 +1520,6 @@ def print_topology_summary(
     scenario,
     stations,
 ):
-    network_interface = scenario["network"]["interface"]
-
     info("\n*** Topology ready\n")
     info(
         "*** Identity             Container       "
@@ -1792,46 +1530,1035 @@ def print_topology_summary(
         "-------------------------- ----------------\n"
     )
 
-    for node_config in scenario["nodes"]:
-        identity = node_config["identity"]
-        station = stations[identity]
-        roles = ",".join(node_config["roles"]) or "-"
+    for node in scenario["nodes"]:
+        station = stations[node["identity"]]
+        roles = ",".join(node["roles"]) or "-"
 
         info(
-            f"*** {identity:<20} "
+            f"*** {node['identity']:<20} "
             f"{station.name:<16} "
-            f"{node_config['ip']:<26} "
+            f"{node['ip']:<26} "
             f"{roles}\n"
         )
 
-    info(
-        f"*** Operational interface: "
-        f"{network_interface}\n"
+
+# =============================================================================
+# Managed processes
+# =============================================================================
+
+class ManagedProcess:
+    def __init__(
+        self,
+        process_id,
+        node,
+        role,
+        command,
+        process,
+        pid_file,
+        stdout_path,
+        stderr_path,
+        stdout_file,
+        stderr_file,
+    ):
+        self.process_id = process_id
+        self.node = node
+        self.role = role
+        self.command = command
+        self.process = process
+        self.pid_file = pid_file
+
+        self.stdout_path = str(stdout_path)
+        self.stderr_path = str(stderr_path)
+
+        self.stdout_file = stdout_file
+        self.stderr_file = stderr_file
+
+        self.started_at = utc_now_iso()
+        self.ready_at = None
+        self.finished_at = None
+        self.return_code = None
+        self.stop_signal = None
+
+        self.stdout_queue = queue.Queue()
+        self.threads = []
+
+
+def stream_reader(
+    stream,
+    output_file,
+    output_queue=None,
+):
+    try:
+        for line in iter(stream.readline, ""):
+            if output_file is not None:
+                output_file.write(line)
+                output_file.flush()
+
+            if output_queue is not None:
+                output_queue.put(line.rstrip("\r\n"))
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
+def start_managed_process(
+    node,
+    process_id,
+    role,
+    command,
+    run_directory,
+    capture_stdout=True,
+    capture_stderr=True,
+):
+    process_name = safe_name(process_id)
+
+    stdout_path = (
+        run_directory
+        / "processes"
+        / f"{process_name}.stdout.log"
     )
 
+    stderr_path = (
+        run_directory
+        / "processes"
+        / f"{process_name}.stderr.log"
+    )
 
-def warn_about_deferred_link_configuration(scenario):
-    link = scenario["network"].get("link") or {}
-
-    configured_fields = [
-        field
-        for field in (
-            "bandwidth_mbps",
-            "delay_ms",
-            "loss_percent",
+    stdout_file = (
+        stdout_path.open(
+            "w",
+            encoding="utf-8",
+            buffering=1,
         )
-        if field in link
+        if capture_stdout
+        else None
+    )
+
+    stderr_file = (
+        stderr_path.open(
+            "w",
+            encoding="utf-8",
+            buffering=1,
+        )
+        if capture_stderr
+        else None
+    )
+
+    pid_file = (
+        f"/tmp/testbed-{process_name}.pid"
+    )
+
+    shell_command = (
+        f"echo $$ > {shlex.quote(pid_file)}; "
+        f"exec {shlex.join(command)}"
+    )
+
+    docker_command = [
+        "docker",
+        "exec",
+        "-i",
+        node.did,
+        "sh",
+        "-c",
+        shell_command,
     ]
 
-    if configured_fields:
-        info(
-            "*** NOTE: network.link bandwidth, delay and loss "
-            "are present in the scenario but are not applied in "
-            "this first delivery.\n"
+    process = subprocess.Popen(
+        docker_command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    managed = ManagedProcess(
+        process_id=process_id,
+        node=node,
+        role=role,
+        command=command,
+        process=process,
+        pid_file=pid_file,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        stdout_file=stdout_file,
+        stderr_file=stderr_file,
+    )
+
+    stdout_thread = threading.Thread(
+        target=stream_reader,
+        args=(
+            process.stdout,
+            stdout_file,
+            managed.stdout_queue,
+        ),
+        daemon=True,
+    )
+
+    stderr_thread = threading.Thread(
+        target=stream_reader,
+        args=(
+            process.stderr,
+            stderr_file,
+            None,
+        ),
+        daemon=True,
+    )
+
+    stdout_thread.start()
+    stderr_thread.start()
+
+    managed.threads.extend([
+        stdout_thread,
+        stderr_thread,
+    ])
+
+    return managed
+
+
+def finalize_managed_process(managed):
+    if managed.finished_at is None:
+        managed.finished_at = utc_now_iso()
+
+    managed.return_code = managed.process.poll()
+
+    for thread in managed.threads:
+        thread.join(timeout=1)
+
+    for output_file in (
+        managed.stdout_file,
+        managed.stderr_file,
+    ):
+        if output_file is not None and not output_file.closed:
+            output_file.close()
+
+
+def stop_managed_process(
+    managed,
+    timeout_seconds,
+):
+    if managed.process.poll() is not None:
+        finalize_managed_process(managed)
+        return
+
+    managed.stop_signal = "SIGTERM"
+
+    run_command(
+        managed.node,
+        (
+            f"test ! -f {shlex.quote(managed.pid_file)} || "
+            f"kill -TERM "
+            f"$(cat {shlex.quote(managed.pid_file)})"
+        ),
+        f"terminate {managed.process_id}",
+        must_succeed=False,
+    )
+
+    try:
+        managed.process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        managed.stop_signal = "SIGKILL"
+
+        run_command(
+            managed.node,
+            (
+                f"test ! -f {shlex.quote(managed.pid_file)} || "
+                f"kill -KILL "
+                f"$(cat {shlex.quote(managed.pid_file)})"
+            ),
+            f"kill {managed.process_id}",
+            must_succeed=False,
+        )
+
+        try:
+            managed.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            managed.process.kill()
+            managed.process.wait(timeout=2)
+
+    finalize_managed_process(managed)
+
+
+def process_metadata(managed):
+    return {
+        "id": managed.process_id,
+        "node": managed.node.name,
+        "role": managed.role,
+        "command": managed.command,
+        "started_at": managed.started_at,
+        "ready_at": managed.ready_at,
+        "finished_at": managed.finished_at,
+        "return_code": managed.return_code,
+        "stop_signal": managed.stop_signal,
+        "stdout": managed.stdout_path,
+        "stderr": managed.stderr_path,
+    }
+
+
+# =============================================================================
+# Binary availability and orchestration
+# =============================================================================
+
+def inspect_container_binaries(
+    scenario,
+    stations,
+):
+    containers = scenario["containers"]
+    container_directory = containers[
+        "binaries_directory"
+    ]
+
+    role_paths = {
+        "sender": container_binary_path(
+            container_directory,
+            containers["sender_binary"],
+        ),
+        "receiver": container_binary_path(
+            container_directory,
+            containers["receiver_binary"],
+        ),
+    }
+
+    missing = []
+
+    for node in scenario["nodes"]:
+        station = stations[node["identity"]]
+
+        for role in node["roles"]:
+            path = role_paths[role]
+
+            _, exit_code = run_command(
+                station,
+                f"test -x {shlex.quote(path)}",
+                f"check {role} binary",
+                must_succeed=False,
+            )
+
+            if exit_code != 0:
+                missing.append({
+                    "identity": node["identity"],
+                    "container": station.name,
+                    "role": role,
+                    "path": path,
+                })
+
+    return role_paths, missing
+
+
+def start_receivers(
+    scenario,
+    stations,
+    role_paths,
+    run_directory,
+):
+    processes = []
+    process_config = scenario["measurements"]["process"]
+    port = scenario["communication"]["port"]
+
+    info("*** Starting receivers\n")
+
+    for node in scenario["nodes"]:
+        if "receiver" not in node["roles"]:
+            continue
+
+        identity = node["identity"]
+        station = stations[identity]
+
+        command = [
+            role_paths["receiver"],
+            "--address",
+            address_without_prefix(node["ip"]),
+            "--port",
+            str(port),
+        ]
+
+        managed = start_managed_process(
+            node=station,
+            process_id=f"{identity}.receiver",
+            role="receiver",
+            command=command,
+            run_directory=run_directory,
+            capture_stdout=process_config[
+                "capture_stdout"
+            ],
+            capture_stderr=process_config[
+                "capture_stderr"
+            ],
+        )
+
+        processes.append(managed)
+
+    return processes
+
+
+def wait_for_receivers(
+    receiver_processes,
+    scenario,
+):
+    expected = scenario["readiness"]["expected_output"]
+    timeout = scenario["readiness"]["timeout_seconds"]
+    deadline = time.monotonic() + timeout
+
+    info(
+        f"*** Waiting for receiver state "
+        f"{expected!r}\n"
+    )
+
+    pending = set(receiver_processes)
+
+    while pending:
+        if time.monotonic() >= deadline:
+            pending_names = [
+                process.process_id
+                for process in pending
+            ]
+
+            raise RuntimeError(
+                "Receiver readiness timeout. Pending: "
+                + ", ".join(pending_names)
+            )
+
+        for managed in list(pending):
+            return_code = managed.process.poll()
+
+            if return_code is not None:
+                finalize_managed_process(managed)
+
+                raise RuntimeError(
+                    f"Receiver {managed.process_id} exited "
+                    f"before READY with code {return_code}."
+                )
+
+            try:
+                line = managed.stdout_queue.get_nowait()
+            except queue.Empty:
+                continue
+
+            if line.strip() == expected:
+                managed.ready_at = utc_now_iso()
+                pending.remove(managed)
+
+                info(
+                    f"*** {managed.process_id}: READY\n"
+                )
+
+        time.sleep(0.05)
+
+
+def start_senders(
+    scenario,
+    stations,
+    role_paths,
+    run_directory,
+):
+    communication = scenario["communication"]
+    process_config = scenario["measurements"]["process"]
+
+    mode = communication["mode"]
+    port = communication["port"]
+    count = communication["transmission"]["count"]
+
+    nodes_by_identity = {
+        node["identity"]: node
+        for node in scenario["nodes"]
+    }
+
+    processes = []
+
+    info("*** Starting senders\n")
+
+    if mode == "unicast":
+        for index, flow in enumerate(
+            communication["flows"],
+            start=1,
+        ):
+            source = flow["source"]
+            destination = flow["destination"]
+
+            destination_address = address_without_prefix(
+                nodes_by_identity[destination]["ip"]
+            )
+
+            command = [
+                role_paths["sender"],
+                "--mode",
+                "unicast",
+                "--destination",
+                destination_address,
+                "--port",
+                str(port),
+                "--count",
+                str(count),
+            ]
+
+            managed = start_managed_process(
+                node=stations[source],
+                process_id=(
+                    f"{source}.sender."
+                    f"{index}.to.{destination}"
+                ),
+                role="sender",
+                command=command,
+                run_directory=run_directory,
+                capture_stdout=process_config[
+                    "capture_stdout"
+                ],
+                capture_stderr=process_config[
+                    "capture_stderr"
+                ],
+            )
+
+            processes.append(managed)
+
+    else:
+        subnet = ipaddress.ip_network(
+            scenario["network"]["subnet"],
+            strict=False,
+        )
+
+        broadcast_address = str(
+            subnet.broadcast_address
+        )
+
+        for index, broadcast in enumerate(
+            communication["broadcasts"],
+            start=1,
+        ):
+            source = (
+                broadcast
+                if isinstance(broadcast, str)
+                else broadcast["source"]
+            )
+
+            destination = (
+                broadcast.get(
+                    "destination",
+                    broadcast_address,
+                )
+                if isinstance(broadcast, dict)
+                else broadcast_address
+            )
+
+            command = [
+                role_paths["sender"],
+                "--mode",
+                "broadcast",
+                "--destination",
+                destination,
+                "--port",
+                str(port),
+                "--count",
+                str(count),
+            ]
+
+            managed = start_managed_process(
+                node=stations[source],
+                process_id=(
+                    f"{source}.sender."
+                    f"{index}.broadcast"
+                ),
+                role="sender",
+                command=command,
+                run_directory=run_directory,
+                capture_stdout=process_config[
+                    "capture_stdout"
+                ],
+                capture_stderr=process_config[
+                    "capture_stderr"
+                ],
+            )
+
+            processes.append(managed)
+
+    return processes
+
+
+def wait_for_senders(
+    sender_processes,
+    scenario,
+):
+    condition = scenario["termination"]["condition"]
+    duration = scenario["experiment"]["duration_seconds"]
+    deadline = time.monotonic() + duration
+
+    while True:
+        running = [
+            process
+            for process in sender_processes
+            if process.process.poll() is None
+        ]
+
+        if condition == "senders_completed" and not running:
+            break
+
+        if time.monotonic() >= deadline:
+            break
+
+        time.sleep(0.1)
+
+    for managed in sender_processes:
+        if managed.process.poll() is not None:
+            finalize_managed_process(managed)
+
+
+# =============================================================================
+# Packet captures
+# =============================================================================
+
+def resolve_interface(node, logical_name):
+    if logical_name == "wlan0":
+        return f"{node.name}-wlan0"
+
+    return logical_name
+
+
+def start_packet_captures(
+    scenario,
+    stations,
+    run_directory,
+):
+    packet_config = scenario["measurements"][
+        "packet_capture"
+    ]
+
+    if (
+        not scenario["measurements"]["enabled"]
+        or not packet_config["enabled"]
+    ):
+        return []
+
+    captures = []
+
+    info("*** Starting packet captures\n")
+
+    for node_config in scenario["nodes"]:
+        identity = node_config["identity"]
+        station = stations[identity]
+
+        _, tcpdump_status = run_command(
+            station,
+            "command -v tcpdump",
+            "check tcpdump",
+            must_succeed=False,
+        )
+
+        if tcpdump_status != 0:
+            info(
+                f"*** WARNING: tcpdump is unavailable "
+                f"on {station.name}\n"
+            )
+            continue
+
+        for logical_interface in packet_config["interfaces"]:
+            interface = resolve_interface(
+                station,
+                logical_interface,
+            )
+
+            _, interface_status = run_command(
+                station,
+                (
+                    f"ip link show dev "
+                    f"{shlex.quote(interface)}"
+                ),
+                f"check capture interface {interface}",
+                must_succeed=False,
+            )
+
+            if interface_status != 0:
+                info(
+                    f"*** WARNING: cannot capture "
+                    f"{station.name}:{interface}; "
+                    "interface not found\n"
+                )
+                continue
+
+            filename = (
+                f"{safe_name(identity)}."
+                f"{safe_name(interface)}.pcap"
+            )
+
+            container_pcap = (
+                f"{RESULTS_CONTAINER_DIR}/pcaps/"
+                f"{filename}"
+            )
+
+            command = [
+                "tcpdump",
+                "-n",
+                "-U",
+                "-i",
+                interface,
+                "-s",
+                str(packet_config["snaplen"]),
+                "-w",
+                container_pcap,
+            ]
+
+            if packet_config["immediate_mode"]:
+                command.insert(1, "--immediate-mode")
+
+            capture_filter = packet_config.get(
+                "filter",
+                "",
+            ).strip()
+
+            if capture_filter:
+                command.extend(
+                    shlex.split(capture_filter)
+                )
+
+            managed = start_managed_process(
+                node=station,
+                process_id=(
+                    f"{identity}.tcpdump.{interface}"
+                ),
+                role="tcpdump",
+                command=command,
+                run_directory=run_directory,
+                capture_stdout=False,
+                capture_stderr=True,
+            )
+
+            captures.append(managed)
+
+    # Give tcpdump time to initialize before the protocol starts.
+    time.sleep(0.5)
+
+    return captures
+
+
+# =============================================================================
+# Interface counters
+# =============================================================================
+
+def collect_interface_counters(
+    scenario,
+    stations,
+):
+    counter_config = scenario["measurements"][
+        "interface_counters"
+    ]
+
+    snapshot = {
+        "timestamp": utc_now_iso(),
+        "nodes": {},
+    }
+
+    if (
+        not scenario["measurements"]["enabled"]
+        or not counter_config["enabled"]
+    ):
+        return snapshot
+
+    for node_config in scenario["nodes"]:
+        identity = node_config["identity"]
+        station = stations[identity]
+
+        node_snapshot = {}
+
+        for logical_interface in counter_config["interfaces"]:
+            interface = resolve_interface(
+                station,
+                logical_interface,
+            )
+
+            interface_snapshot = {}
+
+            for counter_name in INTERFACE_COUNTER_NAMES:
+                counter_path = (
+                    f"/sys/class/net/{interface}/"
+                    f"statistics/{counter_name}"
+                )
+
+                output, exit_code = run_command(
+                    station,
+                    f"cat {shlex.quote(counter_path)}",
+                    f"read {interface} {counter_name}",
+                    must_succeed=False,
+                )
+
+                if exit_code == 0:
+                    try:
+                        interface_snapshot[
+                            counter_name
+                        ] = int(output.strip())
+                    except ValueError:
+                        interface_snapshot[
+                            counter_name
+                        ] = None
+                else:
+                    interface_snapshot[
+                        counter_name
+                    ] = None
+
+            node_snapshot[interface] = interface_snapshot
+
+        snapshot["nodes"][identity] = node_snapshot
+
+    return snapshot
+
+
+def subtract_counter_snapshots(initial, final):
+    differences = {}
+
+    for identity, interfaces in final.get(
+        "nodes",
+        {},
+    ).items():
+        differences[identity] = {}
+
+        for interface, counters in interfaces.items():
+            differences[identity][interface] = {}
+
+            initial_counters = (
+                initial.get("nodes", {})
+                .get(identity, {})
+                .get(interface, {})
+            )
+
+            for name, final_value in counters.items():
+                initial_value = initial_counters.get(name)
+
+                if (
+                    isinstance(initial_value, int)
+                    and isinstance(final_value, int)
+                ):
+                    value = final_value - initial_value
+                else:
+                    value = None
+
+                differences[identity][interface][
+                    name
+                ] = value
+
+    return differences
+
+
+class CounterSampler:
+    def __init__(
+        self,
+        scenario,
+        stations,
+        output_path,
+    ):
+        self.scenario = scenario
+        self.stations = stations
+        self.output_path = Path(output_path)
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        config = self.scenario["measurements"][
+            "interface_counters"
+        ]
+
+        if (
+            not self.scenario["measurements"]["enabled"]
+            or not config["enabled"]
+        ):
+            return
+
+        self.thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+        )
+        self.thread.start()
+
+    def _run(self):
+        interval = self.scenario["measurements"][
+            "sampling_interval_seconds"
+        ]
+
+        with self.output_path.open(
+            "a",
+            encoding="utf-8",
+            buffering=1,
+        ) as output:
+            while not self.stop_event.is_set():
+                snapshot = collect_interface_counters(
+                    self.scenario,
+                    self.stations,
+                )
+
+                output.write(
+                    json.dumps(
+                        snapshot,
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+                self.stop_event.wait(interval)
+
+    def stop(self):
+        self.stop_event.set()
+
+        if self.thread is not None:
+            self.thread.join(timeout=5)
+
+
+# =============================================================================
+# BATMAN-adv snapshots
+# =============================================================================
+
+def collect_batman_snapshot(
+    scenario,
+    stations,
+    output_path,
+):
+    batman_config = scenario["measurements"]["batman"]
+
+    if (
+        not scenario["measurements"]["enabled"]
+        or not batman_config["enabled"]
+    ):
+        return
+
+    output_path = Path(output_path)
+
+    with output_path.open(
+        "w",
+        encoding="utf-8",
+    ) as output:
+        output.write(
+            f"timestamp={utc_now_iso()}\n"
+        )
+
+        for node_config in scenario["nodes"]:
+            identity = node_config["identity"]
+            station = stations[identity]
+
+            output.write(
+                "\n"
+                + "=" * 80
+                + "\n"
+                + f"node={identity} "
+                + f"container={station.name}\n"
+            )
+
+            commands = [
+                ("interfaces", "batctl if"),
+                (
+                    "neighbors",
+                    "batctl neighbors 2>/dev/null "
+                    "|| batctl n 2>/dev/null",
+                ),
+                (
+                    "originators",
+                    "batctl originators 2>/dev/null "
+                    "|| batctl o 2>/dev/null",
+                ),
+                (
+                    "statistics",
+                    "batctl statistics 2>/dev/null "
+                    "|| true",
+                ),
+            ]
+
+            for title, command in commands:
+                command_output, _ = run_command(
+                    station,
+                    command,
+                    f"collect BATMAN {title}",
+                    must_succeed=False,
+                )
+
+                output.write(
+                    f"\n--- {title} ---\n"
+                )
+
+                output.write(
+                    command_output
+                    if command_output
+                    else "(unavailable)"
+                )
+
+                output.write("\n")
+
+
+# =============================================================================
+# Experiment modes
+# =============================================================================
+
+def run_idle_mode(scenario):
+    duration = scenario["experiment"]["duration_seconds"]
+
+    info(
+        "*** No protocol binaries will be executed.\n"
+    )
+    info(
+        f"*** Keeping the topology idle for "
+        f"{duration} seconds.\n"
+    )
+
+    deadline = time.monotonic() + duration
+
+    while time.monotonic() < deadline:
+        time.sleep(
+            min(0.5, deadline - time.monotonic())
         )
 
 
-# ====== Topology lifecycle ======
+def run_protocol_experiment(
+    scenario,
+    stations,
+    role_paths,
+    run_directory,
+):
+    receiver_processes = []
+    sender_processes = []
+
+    shutdown_timeout = scenario["termination"][
+        "shutdown_timeout_seconds"
+    ]
+
+    try:
+        receiver_processes = start_receivers(
+            scenario,
+            stations,
+            role_paths,
+            run_directory,
+        )
+
+        wait_for_receivers(
+            receiver_processes,
+            scenario,
+        )
+
+        sender_processes = start_senders(
+            scenario,
+            stations,
+            role_paths,
+            run_directory,
+        )
+
+        wait_for_senders(
+            sender_processes,
+            scenario,
+        )
+
+    finally:
+        for managed in sender_processes:
+            stop_managed_process(
+                managed,
+                shutdown_timeout,
+            )
+
+        for managed in receiver_processes:
+            stop_managed_process(
+                managed,
+                shutdown_timeout,
+            )
+
+    return receiver_processes + sender_processes
+
+
+# =============================================================================
+# Main topology lifecycle
+# =============================================================================
 
 def topology(
     scenario,
@@ -1839,29 +2566,46 @@ def topology(
     enable_telemetry=False,
 ):
     setLogLevel("info")
-    validate_environment(scenario)
 
-    container_directory = scenario["containers"][
-        "binaries_directory"
-    ]
-
-    info(
-        f"*** Scenario: {scenario['experiment']['id']}\n"
-    )
-    info(
-        f"*** Scenario file: "
-        f"{scenario['_scenario_file']}\n"
-    )
-    info(
-        f"*** Mounting binaries: "
-        f"{BIN_HOST_DIR} -> {container_directory}\n"
+    run_directory = create_result_directory(
+        scenario
     )
 
-    binary_volume = [
-        f"{BIN_HOST_DIR}:{container_directory}:ro",
-    ]
+    binary_status = inspect_host_binaries(
+        scenario
+    )
+
+    summary = {
+        "experiment_id": scenario["experiment"]["id"],
+        "scenario_file": scenario["_scenario_file"],
+        "started_at": utc_now_iso(),
+        "finished_at": None,
+        "status": "running",
+        "mode": None,
+        "results_directory": str(run_directory),
+        "binary_status": binary_status,
+        "missing_container_binaries": [],
+        "processes": [],
+        "counter_differences": {},
+        "warnings": [],
+        "error": None,
+    }
+
+    write_json(
+        run_directory / "metadata.json",
+        summary,
+    )
+
+    info(
+        f"*** Results directory: {run_directory}\n"
+    )
 
     net = None
+    captures = []
+    counter_sampler = None
+    initial_counters = None
+    final_counters = None
+    protocol_processes = []
 
     try:
         net = create_network(scenario)
@@ -1869,7 +2613,7 @@ def topology(
         stations = create_stations(
             net,
             scenario,
-            binary_volume,
+            run_directory,
         )
 
         info("*** Configuring nodes\n")
@@ -1884,18 +2628,9 @@ def topology(
         info("*** Starting network\n")
         net.start()
 
-        check_mounted_binaries(
+        configure_interfaces(
             scenario,
             stations,
-        )
-
-        configure_node_interfaces(
-            scenario,
-            stations,
-        )
-
-        warn_about_deferred_link_configuration(
-            scenario
         )
 
         print_topology_summary(
@@ -1913,39 +2648,238 @@ def topology(
             )
 
         if open_cli:
-            info("*** Running Containernet CLI\n")
+            summary["mode"] = "cli"
+            info("*** Starting Mininet-WiFi CLI\n")
             CLI(net)
-        else:
-            info(
-                "*** Topology validation completed successfully.\n"
+            summary["status"] = "completed"
+            return summary
+
+        role_paths, container_missing = (
+            inspect_container_binaries(
+                scenario,
+                stations,
             )
-            info(
-                "*** The network will now be stopped because "
-                "--cli was not specified.\n"
-            )
-            info(
-                "*** Binary orchestration will be implemented "
-                "in the next delivery.\n"
+        )
+
+        summary[
+            "missing_container_binaries"
+        ] = container_missing
+
+        captures = start_packet_captures(
+            scenario,
+            stations,
+            run_directory,
+        )
+
+        initial_counters = collect_interface_counters(
+            scenario,
+            stations,
+        )
+
+        write_json(
+            run_directory
+            / "counters"
+            / "initial.json",
+            initial_counters,
+        )
+
+        collect_batman_snapshot(
+            scenario,
+            stations,
+            run_directory
+            / "batman"
+            / "initial.txt",
+        )
+
+        counter_sampler = CounterSampler(
+            scenario,
+            stations,
+            run_directory
+            / "counters"
+            / "samples.jsonl",
+        )
+
+        counter_sampler.start()
+
+        host_missing = missing_required_binaries(
+            binary_status
+        )
+
+        missing_anywhere = (
+            bool(host_missing)
+            or bool(container_missing)
+        )
+
+        execution = scenario["execution"]
+        policy = execution["missing_binaries"]
+
+        if not execution["enabled"]:
+            summary["mode"] = "idle"
+            run_idle_mode(scenario)
+
+        elif missing_anywhere and policy == "fail":
+            raise RuntimeError(
+                "Required protocol binaries are missing "
+                "or not executable."
             )
 
+        elif missing_anywhere and policy == "skip":
+            summary["mode"] = "skip"
+
+            info(
+                "*** Protocol binaries are unavailable. "
+                "Skipping protocol execution.\n"
+            )
+
+        elif missing_anywhere and policy == "idle":
+            summary["mode"] = "idle"
+
+            info(
+                "*** Protocol binaries are unavailable. "
+                "Entering idle mode.\n"
+            )
+
+            run_idle_mode(scenario)
+
+        else:
+            summary["mode"] = "protocol"
+
+            protocol_processes = (
+                run_protocol_experiment(
+                    scenario,
+                    stations,
+                    role_paths,
+                    run_directory,
+                )
+            )
+
+            summary["processes"] = [
+                process_metadata(process)
+                for process in protocol_processes
+            ]
+
+        summary["status"] = "completed"
+
+    except KeyboardInterrupt:
+        summary["status"] = "interrupted"
+        summary["error"] = "Interrupted by user."
+        raise
+
+    except Exception as exc:
+        summary["status"] = "failed"
+        summary["error"] = str(exc)
+        raise
+
     finally:
+        shutdown_timeout = scenario["termination"][
+            "shutdown_timeout_seconds"
+        ]
+
+        if counter_sampler is not None:
+            counter_sampler.stop()
+
+        for managed in protocol_processes:
+            if managed.process.poll() is None:
+                stop_managed_process(
+                    managed,
+                    shutdown_timeout,
+                )
+
+        if protocol_processes:
+            summary["processes"] = [
+                process_metadata(process)
+                for process in protocol_processes
+            ]
+
+        if net is not None:
+            try:
+                final_counters = collect_interface_counters(
+                    scenario,
+                    stations,
+                )
+
+                write_json(
+                    run_directory
+                    / "counters"
+                    / "final.json",
+                    final_counters,
+                )
+
+                if initial_counters is not None:
+                    summary["counter_differences"] = (
+                        subtract_counter_snapshots(
+                            initial_counters,
+                            final_counters,
+                        )
+                    )
+
+                collect_batman_snapshot(
+                    scenario,
+                    stations,
+                    run_directory
+                    / "batman"
+                    / "final.txt",
+                )
+
+            except Exception as exc:
+                summary["warnings"].append(
+                    f"Final metrics collection failed: {exc}"
+                )
+
+        for capture in captures:
+            try:
+                stop_managed_process(
+                    capture,
+                    shutdown_timeout,
+                )
+            except Exception as exc:
+                summary["warnings"].append(
+                    f"Could not stop "
+                    f"{capture.process_id}: {exc}"
+                )
+
+        if (
+            scenario["measurements"]["wmediumd"][
+                "capture_log"
+            ]
+        ):
+            summary["warnings"].append(
+                "wmediumd log capture was requested, but the "
+                "current Containernet/Mininet-WiFi integration "
+                "does not expose a stable per-experiment log "
+                "path. PCAPs and interface/BATMAN counters were "
+                "captured normally."
+            )
+
         if net is not None:
             info("*** Stopping network\n")
             net.stop()
 
+        summary["finished_at"] = utc_now_iso()
 
-# ====== Rendering ======
+        write_json(
+            run_directory / "summary.json",
+            summary,
+        )
 
-def scenario_for_rendering(scenario):
-    rendered = copy.deepcopy(scenario)
-    rendered.pop("_scenario_file", None)
-    return rendered
+        info(
+            f"*** Results saved in: {run_directory}\n"
+        )
 
+    return summary
+
+
+# =============================================================================
+# Render and main
+# =============================================================================
 
 def render_scenario(scenario):
+    rendered = copy.deepcopy(scenario)
+    rendered.pop("_scenario_file", None)
+
     print(
         yaml.safe_dump(
-            scenario_for_rendering(scenario),
+            rendered,
             sort_keys=False,
             allow_unicode=True,
         ),
@@ -1953,15 +2887,16 @@ def render_scenario(scenario):
     )
 
 
-# ====== Main ======
-
 def main():
-    args = parse_arguments()
+    arguments = parse_arguments()
 
     try:
-        scenario = load_scenario(args.scenario)
-        scenario = normalize_scenario(scenario)
+        scenario = normalize_scenario(
+            load_scenario(arguments.scenario)
+        )
+
         validate_scenario(scenario)
+
     except (OSError, ValueError) as exc:
         print(
             f"Scenario error: {exc}",
@@ -1969,33 +2904,40 @@ def main():
         )
         return 2
 
-    if args.render:
+    if arguments.render:
         render_scenario(scenario)
         return 0
 
     if os.geteuid() != 0:
         print(
-            "This command must normally run as root because "
-            "Containernet and Mininet configure network namespaces.",
+            "Containernet must run as root.",
             file=sys.stderr,
         )
         return 1
 
+    exit_code = 0
+
     try:
-        topology(
+        summary = topology(
             scenario,
-            open_cli=args.cli,
-            enable_telemetry=args.telemetry,
+            open_cli=arguments.cli,
+            enable_telemetry=arguments.telemetry,
         )
+
+        if summary["status"] == "failed":
+            exit_code = 1
+
     except KeyboardInterrupt:
-        info("\n*** Execution interrupted by the user\n")
-        return 130
+        info("\n*** Execution interrupted\n")
+        exit_code = 130
+
     except Exception as exc:
         print(
             f"\nTestbed error: {exc}",
             file=sys.stderr,
         )
-        return 1
+        exit_code = 1
+
     finally:
         print("\nCleaning the Mininet environment...")
 
@@ -2004,7 +2946,7 @@ def main():
             check=False,
         )
 
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

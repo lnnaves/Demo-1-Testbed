@@ -1,24 +1,37 @@
-# Identificação do experimento.
+# Identificação e duração máxima do experimento.
 experiment:
   id: "unicast-demo-01"
-
-  # Semente usada em decisões aleatórias, como mobilidade.
-  # O mesmo valor deve permitir repetir o cenário.
   seed: 42
-
-  # Limite total da execução.
   duration_seconds: 60
 
-# Imagem e diretório dos binários dentro dos containers.
+# Artefatos do protocolo.
 containers:
   image: "drone:latest"
+
+  # Demo-1-Testbed/bin é montado neste diretório.
   binaries_directory: "/opt/protocol/bin"
 
-  # Os arquivos devem respeitar o contrato definido em BIN_INTERFACE.md.
-  sender_binary: "./sender"
-  receiver_binary: "./receiver"
+  # Caminhos relativos a binaries_directory.
+  sender_binary: "sender"
+  receiver_binary: "receiver"
 
-# Configuração da rede utilizada pelos nós.
+# Comportamento quando sender ou receiver não estiver disponível.
+execution:
+  enabled: true
+
+  # Valores possíveis:
+  #
+  #   fail:
+  #     interrompe a execução se algum binário necessário estiver ausente.
+  #
+  #   idle:
+  #     não executa nenhum binário e mantém a topologia ativa durante
+  #     experiment.duration_seconds, sem gerar tráfego artificial.
+  #
+  #   skip:
+  #     configura e valida a topologia, mas encerra sem executar o experimento.
+  missing_binaries: "idle"
+
 network:
   interface: "bat0"
   subnet: "192.168.123.0/24"
@@ -27,25 +40,22 @@ network:
     ssid: "adhocNet"
     mode: "g"
     channel: 5
+    bssid: "02:11:22:33:44:55"
+    ht_cap: "HT40+"
 
-  link:
-    bandwidth_mbps: 10
-    delay_ms: 5
-    loss_percent: 0
+  # O wmediumd modela o meio sem fio.
+  medium:
+    # Inicialmente, apenas interference será executado.
+    mode: "interference"
 
-  propagation:
-    model: "logDistance"
-    exponent: 3.5
+    noise_threshold_dbm: -91
+    fading_coefficient: 3
 
-# Cada item representa um container da topologia.
-#
-# identity é o nome lógico do nó no experimento.
-#
-# roles pode conter:
-#   - sender
-#   - receiver
-#
-# Um mesmo nó pode possuir os dois papéis.
+    propagation:
+      model: "logDistance"
+      exponent: 3.5
+
+# Cada item representa um container.
 nodes:
   - identity: "drone-1"
     container_name: "dr1"
@@ -57,6 +67,8 @@ nodes:
       x: 10
       y: 20
       z: 0
+    txpower_dbm: 10
+    range_meters: 25
 
   - identity: "drone-2"
     container_name: "dr2"
@@ -68,6 +80,8 @@ nodes:
       x: 30
       y: 40
       z: 0
+    txpower_dbm: 10
+    range_meters: 25
 
   - identity: "drone-3"
     container_name: "dr3"
@@ -79,6 +93,8 @@ nodes:
       x: 27
       y: 33
       z: 0
+    txpower_dbm: 10
+    range_meters: 25
 
   - identity: "gcs"
     container_name: "gcs0"
@@ -91,64 +107,97 @@ nodes:
       x: 10
       y: 10
       z: 0
+    txpower_dbm: 10
+    range_meters: 25
 
-# Configuração de mobilidade.
 mobility:
   enabled: false
-
-  # Valores possíveis inicialmente:
-  #   static
-  #   random_direction
-  #   random_walk
-  #   gauss_markov
   model: "static"
 
-  # Utilizados somente quando enabled for true.
   update_interval_seconds: 1
+
   speed_mps:
     min: 1
     max: 5
 
-# Configuração da comunicação realizada no experimento.
 communication:
-  # Valores possíveis:
-  #   unicast
-  #   broadcast
   mode: "unicast"
-
   port: 9000
 
   transmission:
     count: 10
     interval_ms: 1000
 
-  # Utilizado quando mode for unicast.
-  #
-  # Cada fluxo associa um nó sender a um nó receiver.
   flows:
     - source: "drone-1"
       destination: "drone-2"
 
-  # Utilizado quando mode for broadcast.
-  #
-  # Em unicast, este bloco deve permanecer vazio.
   broadcasts: []
 
-# Política usada para aguardar o READY dos receivers.
 readiness:
   expected_output: "READY"
   timeout_seconds: 10
 
-# Condição usada pelo orquestrador para terminar o experimento.
 termination:
-  # Valores possíveis inicialmente:
+  # Valores possíveis:
   #   senders_completed
   #   duration_elapsed
   condition: "senders_completed"
 
-  # Tempo concedido para encerramento após SIGTERM.
   shutdown_timeout_seconds: 5
 
-# Diretório no qual o orquestrador armazenará os resultados.
+measurements:
+  enabled: true
+
+  # Intervalo usado na coleta de contadores.
+  sampling_interval_seconds: 1
+
+  process:
+    enabled: true
+
+    # Captura stdout, stderr, horários e códigos de saída.
+    capture_stdout: true
+    capture_stderr: true
+
+  packet_capture:
+    enabled: true
+
+    # bat0 oferece a visão operacional do protocolo e do roteamento.
+    interfaces:
+      - "bat0"
+
+    # Captura completa. Um valor maior que zero limita os bytes
+    # capturados de cada pacote.
+    snaplen: 0
+
+    # Evita perda de informações por buffering no tcpdump.
+    immediate_mode: true
+
+    # Filtro BPF opcional. Vazio captura todo o tráfego.
+    filter: ""
+
+  interface_counters:
+    enabled: true
+
+    interfaces:
+      - "bat0"
+      - "wlan0"
+
+  batman:
+    enabled: true
+
+    # Coleta periódica pode gerar overhead. Inicialmente coletamos
+    # apenas no começo e no final.
+    collect_periodically: false
+
+  wmediumd:
+    # Guardar logs do processo quando eles estiverem acessíveis.
+    capture_log: true
+
+  active_probes:
+    # Ping e iperf geram tráfego e influenciam o experimento.
+    # Devem ficar desabilitados nas avaliações normais.
+    enabled: false
+
 results:
   directory: "./logs"
