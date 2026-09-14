@@ -1,0 +1,154 @@
+# Identificação do experimento.
+experiment:
+  id: "unicast-demo-01"
+
+  # Semente usada em decisões aleatórias, como mobilidade.
+  # O mesmo valor deve permitir repetir o cenário.
+  seed: 42
+
+  # Limite total da execução.
+  duration_seconds: 60
+
+# Imagem e diretório dos binários dentro dos containers.
+containers:
+  image: "drone:latest"
+  binaries_directory: "/opt/protocol/bin"
+
+  # Os arquivos devem respeitar o contrato definido em BIN_INTERFACE.md.
+  sender_binary: "./sender"
+  receiver_binary: "./receiver"
+
+# Configuração da rede utilizada pelos nós.
+network:
+  interface: "bat0"
+  subnet: "192.168.123.0/24"
+
+  wireless:
+    ssid: "adhocNet"
+    mode: "g"
+    channel: 5
+
+  link:
+    bandwidth_mbps: 10
+    delay_ms: 5
+    loss_percent: 0
+
+  propagation:
+    model: "logDistance"
+    exponent: 3.5
+
+# Cada item representa um container da topologia.
+#
+# identity é o nome lógico do nó no experimento.
+#
+# roles pode conter:
+#   - sender
+#   - receiver
+#
+# Um mesmo nó pode possuir os dois papéis.
+nodes:
+  - identity: "drone-1"
+    container_name: "dr1"
+    type: "drone"
+    ip: "192.168.123.1/24"
+    roles:
+      - sender
+    position:
+      x: 10
+      y: 20
+      z: 0
+
+  - identity: "drone-2"
+    container_name: "dr2"
+    type: "drone"
+    ip: "192.168.123.2/24"
+    roles:
+      - receiver
+    position:
+      x: 30
+      y: 40
+      z: 0
+
+  - identity: "drone-3"
+    container_name: "dr3"
+    type: "drone"
+    ip: "192.168.123.3/24"
+    roles:
+      - receiver
+    position:
+      x: 27
+      y: 33
+      z: 0
+
+  - identity: "gcs"
+    container_name: "gcs0"
+    type: "gcs"
+    ip: "192.168.123.5/24"
+    roles:
+      - sender
+      - receiver
+    position:
+      x: 10
+      y: 10
+      z: 0
+
+# Configuração de mobilidade.
+mobility:
+  enabled: false
+
+  # Valores possíveis inicialmente:
+  #   static
+  #   random_direction
+  #   random_walk
+  #   gauss_markov
+  model: "static"
+
+  # Utilizados somente quando enabled for true.
+  update_interval_seconds: 1
+  speed_mps:
+    min: 1
+    max: 5
+
+# Configuração da comunicação realizada no experimento.
+communication:
+  # Valores possíveis:
+  #   unicast
+  #   broadcast
+  mode: "unicast"
+
+  port: 9000
+
+  transmission:
+    count: 10
+    interval_ms: 1000
+
+  # Utilizado quando mode for unicast.
+  #
+  # Cada fluxo associa um nó sender a um nó receiver.
+  flows:
+    - source: "drone-1"
+      destination: "drone-2"
+
+  # Utilizado quando mode for broadcast.
+  #
+  # Em unicast, este bloco deve permanecer vazio.
+  broadcasts: []
+
+# Política usada para aguardar o READY dos receivers.
+readiness:
+  expected_output: "READY"
+  timeout_seconds: 10
+
+# Condição usada pelo orquestrador para terminar o experimento.
+termination:
+  # Valores possíveis inicialmente:
+  #   senders_completed
+  #   duration_elapsed
+  condition: "senders_completed"
+
+  # Tempo concedido para encerramento após SIGTERM.
+  shutdown_timeout_seconds: 5
+
+# Diretório no qual o orquestrador armazenará os resultados.
+results:
+  directory: "./logs"
