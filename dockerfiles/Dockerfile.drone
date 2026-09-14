@@ -1,0 +1,41 @@
+FROM ardupilot/ardupilot-dev-base:sha-e7a07b7f
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        iproute2 \
+        iputils-ping \
+        iw \
+        wireless-tools \
+        batctl \
+        ebtables \
+        kmod \
+        procps \
+        tcpdump \
+        libstdc++6 \
+        time \
+        linux-tools-common \
+        linux-tools-generic \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN PERF_BIN="$(find -L /usr/lib/linux-tools -name perf -executable -print -quit)" \
+    && test -n "$PERF_BIN" \
+    && ln -sf "$(readlink -f "$PERF_BIN")" /usr/local/bin/perf \
+    && /usr/local/bin/perf --version
+
+WORKDIR /ardupilot
+
+RUN git clone --recurse-submodules \
+    https://github.com/ArduPilot/ardupilot.git . \
+    && git config --global --add safe.directory /ardupilot
+
+RUN ./waf configure --board sitl \
+    && ./waf copter
+
+ENV PATH="/root/.local/bin:/ardupilot/Tools/autotest:/ardupilot/build/sitl/bin:${PATH}"
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
