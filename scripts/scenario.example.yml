@@ -257,7 +257,7 @@ communication:
     #
     # O contrato atual não define --interval-ms; portanto, o run.py ainda
     # não passa este valor para o sender.
-    interval_ms: 1000
+    #interval_ms: 1000
 
   # Fluxos utilizados quando mode é unicast.
   #
@@ -328,9 +328,10 @@ measurements:
   # Frequência de amostragem dos contadores das interfaces.
   sampling_interval_seconds: 1
 
-  process:
+  process: 
     # Captura informações dos processos sender e receiver.
-    enabled: true
+  #  enabled: true 
+  # removido o enable pois o codigo nao respeita. o run.py sempre usa apenas capture_stdout/stderr
 
     # Armazena a saída padrão dos binários.
     capture_stdout: true
@@ -390,7 +391,7 @@ measurements:
 
     # O run.py atual captura snapshots no início e no final.
     # A coleta periódica fica reservada para uma versão futura.
-    collect_periodically: false
+    collect_periodically: false 
 
   wmediumd:
     # A integração atual não garante um arquivo de log estável e separado

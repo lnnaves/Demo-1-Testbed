@@ -496,7 +496,7 @@ def apply_defaults(scenario):
 
     transmission = communication.setdefault("transmission", {})
     transmission.setdefault("count", 1)
-    transmission.setdefault("interval_ms", 0)
+    #transmission.setdefault("interval_ms", 0) removido para deixar o YAML honesto
 
     readiness = normalized.setdefault("readiness", {})
     readiness.setdefault("expected_output", "READY")
