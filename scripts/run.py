@@ -2673,11 +2673,6 @@ def run_protocol_experiment(
             process_registry,
         )
 
-        monitor_protocol_processes(
-            sender_processes,
-            receiver_processes,
-            scenario,
-        )
         wait_for_receivers(
             receiver_processes,
             scenario,
