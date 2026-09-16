@@ -391,7 +391,7 @@ measurements:
 
     # O run.py atual captura snapshots no início e no final.
     # A coleta periódica fica reservada para uma versão futura.
-    collect_periodically: false 
+    #collect_periodically: false 
 
   wmediumd:
     # A integração atual não garante um arquivo de log estável e separado

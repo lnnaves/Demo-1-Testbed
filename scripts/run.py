@@ -9,7 +9,6 @@ import posixpath
 import queue
 import re
 import shlex
-import signal
 import subprocess
 import sys
 import threading
@@ -87,6 +86,25 @@ INTERFACE_COUNTER_NAMES = (
     "tx_errors",
 )
 
+NODE_COMMAND_LOCKS = {}
+NODE_COMMAND_LOCKS_GUARD = threading.Lock()
+
+
+def get_node_command_lock(node):
+    """
+    Return a lock dedicated to one Mininet/Containernet node.
+
+    node.cmd() uses the node's interactive shell and must not be called
+    concurrently by multiple threads.
+    """
+
+    node_key = getattr(node, "did", None) or node.name
+
+    with NODE_COMMAND_LOCKS_GUARD:
+        if node_key not in NODE_COMMAND_LOCKS:
+            NODE_COMMAND_LOCKS[node_key] = threading.RLock()
+
+        return NODE_COMMAND_LOCKS[node_key]
 
 # =============================================================================
 # Utility functions
@@ -511,7 +529,7 @@ def apply_defaults(scenario):
     measurements.setdefault("sampling_interval_seconds", 1)
 
     process_config = measurements.setdefault("process", {})
-    process_config.setdefault("enabled", True)
+    #process_config.setdefault("enabled", True) - valor criado mas nao eh utilizado
     process_config.setdefault("capture_stdout", True)
     process_config.setdefault("capture_stderr", True)
 
@@ -1085,16 +1103,40 @@ def create_result_directory(scenario):
         scenario["experiment"]["id"]
     )
 
-    timestamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
 
-    run_directory = (
-        configured.resolve()
-        / experiment_name
-        / timestamp
+    timestamp = utc_now().strftime(
+        "%Y%m%dT%H%M%S.%fZ"
     )
 
+    experiment_directory = (
+        configured.resolve()
+        / experiment_name
+    )
+
+    experiment_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    run_directory = experiment_directory / timestamp
+
+    suffix = 1
+
+    while True:
+        try:
+            run_directory.mkdir(
+                parents=False,
+                exist_ok=False,
+            )
+            break
+        except FileExistsError:
+            run_directory = (
+                experiment_directory
+                / f"{timestamp}-{suffix}"
+            )
+            suffix += 1
+
     for directory in (
-        run_directory,
         run_directory / "processes",
         run_directory / "pcaps",
         run_directory / "counters",
@@ -1197,9 +1239,12 @@ def run_command(
         f"printf '\\n{marker}%s\\n' \"$testbed_status\""
     )
 
-    output = node.cmd(
-        f"sh -c {shlex.quote(wrapped)}"
-    ) or ""
+    command_lock = get_node_command_lock(node)
+
+    with command_lock:
+        output = node.cmd(
+            f"sh -c {shlex.quote(wrapped)}"
+        ) or ""
 
     exit_code = None
     visible_lines = []
@@ -1852,6 +1897,7 @@ def start_receivers(
     stations,
     role_paths,
     run_directory,
+    process_registry,
 ):
     processes = []
     process_config = scenario["measurements"]["process"]
@@ -1889,6 +1935,7 @@ def start_receivers(
         )
 
         processes.append(managed)
+        process_registry.append(managed)
 
     return processes
 
@@ -1952,6 +1999,7 @@ def start_senders(
     stations,
     role_paths,
     run_directory,
+    process_registry,
 ):
     communication = scenario["communication"]
     process_config = scenario["measurements"]["process"]
@@ -2011,6 +2059,7 @@ def start_senders(
             )
 
             processes.append(managed)
+            process_registry.append(managed)
 
     else:
         subnet = ipaddress.ip_network(
@@ -2071,36 +2120,114 @@ def start_senders(
             )
 
             processes.append(managed)
+            process_registry.append(managed)
 
     return processes
 
-
-def wait_for_senders(
+def monitor_protocol_processes(
     sender_processes,
+    receiver_processes,
     scenario,
 ):
+    """
+    Monitor senders and receivers until the experiment terminates.
+
+    A sender exit code different from zero is considered a failure.
+    A receiver that exits before the testbed terminates it is also
+    considered a failure.
+    """
+
     condition = scenario["termination"]["condition"]
     duration = scenario["experiment"]["duration_seconds"]
     deadline = time.monotonic() + duration
 
     while True:
-        running = [
-            process
-            for process in sender_processes
-            if process.process.poll() is None
-        ]
+        # Receivers must remain alive until the orchestrator stops them.
+        for managed in receiver_processes:
+            return_code = managed.process.poll()
 
-        if condition == "senders_completed" and not running:
-            break
+            if return_code is None:
+                continue
+
+            if managed.finished_at is None:
+                finalize_managed_process(managed)
+
+            raise RuntimeError(
+                f"Receiver {managed.process_id} exited "
+                f"unexpectedly with code {return_code}."
+            )
+
+        running_senders = []
+
+        for managed in sender_processes:
+            return_code = managed.process.poll()
+
+            if return_code is None:
+                running_senders.append(managed)
+                continue
+
+            if managed.finished_at is None:
+                finalize_managed_process(managed)
+
+            if return_code != 0:
+                raise RuntimeError(
+                    f"Sender {managed.process_id} failed "
+                    f"with exit code {return_code}."
+                )
+
+        if (
+            condition == "senders_completed"
+            and not running_senders
+        ):
+            return
 
         if time.monotonic() >= deadline:
-            break
+            if (
+                condition == "senders_completed"
+                and running_senders
+            ):
+                running_names = [
+                    process.process_id
+                    for process in running_senders
+                ]
+
+                raise RuntimeError(
+                    "Experiment duration elapsed before "
+                    "the senders completed: "
+                    + ", ".join(running_names)
+                )
+
+            # duration_elapsed intentionally ends here.
+            return
 
         time.sleep(0.1)
 
-    for managed in sender_processes:
-        if managed.process.poll() is not None:
-            finalize_managed_process(managed)
+#def wait_for_senders(
+#    sender_processes,
+#    scenario,
+#):
+#    condition = scenario["termination"]["condition"]
+#    duration = scenario["experiment"]["duration_seconds"]
+#    deadline = time.monotonic() + duration
+#
+#    while True:
+#        running = [
+#            process
+#            for process in sender_processes
+#            if process.process.poll() is None
+#        ]
+#
+#        if condition == "senders_completed" and not running:
+#            break
+#
+#        if time.monotonic() >= deadline:
+#            break
+#
+#        time.sleep(0.1)
+#
+#    for managed in sender_processes:
+#        if managed.process.poll() is not None:
+#            finalize_managed_process(managed)
 
 
 # =============================================================================
@@ -2225,10 +2352,63 @@ def start_packet_captures(
             captures.append(managed)
 
     # Give tcpdump time to initialize before the protocol starts.
+    #time.sleep(0.5)
+
+    #return captures
+    if not captures:
+        raise RuntimeError(
+            "Packet capture is enabled, but no tcpdump "
+            "process could be started."
+        )
+    # New version of capture 
     time.sleep(0.5)
 
-    return captures
+    startup_errors = []
 
+    for managed in captures:
+        return_code = managed.process.poll()
+
+        if return_code is None:
+            continue
+
+        finalize_managed_process(managed)
+
+        stderr_content = ""
+
+        try:
+            stderr_content = Path(
+                managed.stderr_path
+            ).read_text(
+                encoding="utf-8",
+                errors="replace",
+            ).strip()
+        except OSError:
+            stderr_content = "(stderr unavailable)"
+
+        startup_errors.append(
+            f"{managed.process_id} exited with code "
+            f"{return_code}: {stderr_content}"
+        )
+
+    if startup_errors:
+        # Stop captures that started correctly because the complete
+        # measurement set could not be initialized.
+        for managed in captures:
+            if managed.process.poll() is None:
+                try:
+                    stop_managed_process(
+                        managed,
+                        timeout_seconds=2,
+                    )
+                except Exception:
+                    pass
+
+        raise RuntimeError(
+            "One or more packet captures failed to start:\n"
+            + "\n".join(startup_errors)
+        )
+
+    return captures 
 
 # =============================================================================
 # Interface counters
@@ -2507,6 +2687,7 @@ def run_protocol_experiment(
     stations,
     role_paths,
     run_directory,
+    process_registry,
 ):
     receiver_processes = []
     sender_processes = []
@@ -2521,8 +2702,14 @@ def run_protocol_experiment(
             stations,
             role_paths,
             run_directory,
+            process_registry,
         )
 
+        monitor_protocol_processes(
+            sender_processes,
+            receiver_processes,
+            scenario,
+        )
         wait_for_receivers(
             receiver_processes,
             scenario,
@@ -2535,10 +2722,10 @@ def run_protocol_experiment(
             run_directory,
         )
 
-        wait_for_senders(
-            sender_processes,
-            scenario,
-        )
+       # wait_for_senders(
+       #     sender_processes,
+       #     scenario,
+       # )
 
     finally:
         for managed in sender_processes:
@@ -2553,7 +2740,7 @@ def run_protocol_experiment(
                 shutdown_timeout,
             )
 
-    return receiver_processes + sender_processes
+    #return receiver_processes + sender_processes
 
 
 # =============================================================================
@@ -2744,13 +2931,21 @@ def topology(
         else:
             summary["mode"] = "protocol"
 
-            protocol_processes = (
-                run_protocol_experiment(
-                    scenario,
-                    stations,
-                    role_paths,
-                    run_directory,
-                )
+            #protocol_processes = (
+                #run_protocol_experiment(
+                    #scenario,
+                    #stations,
+                    #role_paths,
+                    #run_directory,
+                #)
+            #)
+
+            run_protocol_experiment(
+                scenario,
+                stations,
+                role_paths,
+                run_directory,
+                protocol_processes,
             )
 
             summary["processes"] = [
@@ -2779,11 +2974,25 @@ def topology(
             counter_sampler.stop()
 
         for managed in protocol_processes:
-            if managed.process.poll() is None:
-                stop_managed_process(
-                    managed,
-                    shutdown_timeout,
+            try:
+                if managed.process.poll() is None:
+                    stop_managed_process(
+                        managed,
+                        shutdown_timeout,
+                    )
+                elif managed.finished_at is None:
+                    finalize_managed_process(managed)
+            except Exception as exc:
+                summary["warnings"].append(
+                    f"Could not finalize "
+                    f"{managed.process_id}: {exc}"
                 )
+        #for managed in protocol_processes:
+        #    if managed.process.poll() is None:
+        #        stop_managed_process(
+        #            managed,
+        #            shutdown_timeout,
+        #        )
 
         if protocol_processes:
             summary["processes"] = [
