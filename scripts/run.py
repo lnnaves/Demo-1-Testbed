@@ -514,7 +514,6 @@ def apply_defaults(scenario):
 
     transmission = communication.setdefault("transmission", {})
     transmission.setdefault("count", 1)
-    #transmission.setdefault("interval_ms", 0) removido para deixar o YAML honesto
 
     readiness = normalized.setdefault("readiness", {})
     readiness.setdefault("expected_output", "READY")
@@ -2202,33 +2201,6 @@ def monitor_protocol_processes(
 
         time.sleep(0.1)
 
-#def wait_for_senders(
-#    sender_processes,
-#    scenario,
-#):
-#    condition = scenario["termination"]["condition"]
-#    duration = scenario["experiment"]["duration_seconds"]
-#    deadline = time.monotonic() + duration
-#
-#    while True:
-#        running = [
-#            process
-#            for process in sender_processes
-#            if process.process.poll() is None
-#        ]
-#
-#        if condition == "senders_completed" and not running:
-#            break
-#
-#        if time.monotonic() >= deadline:
-#            break
-#
-#        time.sleep(0.1)
-#
-#    for managed in sender_processes:
-#        if managed.process.poll() is not None:
-#            finalize_managed_process(managed)
-
 
 # =============================================================================
 # Packet captures
@@ -2351,16 +2323,12 @@ def start_packet_captures(
 
             captures.append(managed)
 
-    # Give tcpdump time to initialize before the protocol starts.
-    #time.sleep(0.5)
-
-    #return captures
     if not captures:
         raise RuntimeError(
             "Packet capture is enabled, but no tcpdump "
             "process could be started."
         )
-    # New version of capture 
+
     time.sleep(0.5)
 
     startup_errors = []
@@ -2720,12 +2688,13 @@ def run_protocol_experiment(
             stations,
             role_paths,
             run_directory,
+            process_registry,
         )
-
-       # wait_for_senders(
-       #     sender_processes,
-       #     scenario,
-       # )
+        monitor_protocol_processes(
+            sender_processes,
+            receiver_processes,
+            scenario,
+        )
 
     finally:
         for managed in sender_processes:
@@ -2739,8 +2708,6 @@ def run_protocol_experiment(
                 managed,
                 shutdown_timeout,
             )
-
-    #return receiver_processes + sender_processes
 
 
 # =============================================================================
@@ -2931,14 +2898,6 @@ def topology(
         else:
             summary["mode"] = "protocol"
 
-            #protocol_processes = (
-                #run_protocol_experiment(
-                    #scenario,
-                    #stations,
-                    #role_paths,
-                    #run_directory,
-                #)
-            #)
 
             run_protocol_experiment(
                 scenario,
@@ -2987,12 +2946,6 @@ def topology(
                     f"Could not finalize "
                     f"{managed.process_id}: {exc}"
                 )
-        #for managed in protocol_processes:
-        #    if managed.process.poll() is None:
-        #        stop_managed_process(
-        #            managed,
-        #            shutdown_timeout,
-        #        )
 
         if protocol_processes:
             summary["processes"] = [
