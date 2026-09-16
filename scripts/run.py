@@ -528,7 +528,6 @@ def apply_defaults(scenario):
     measurements.setdefault("sampling_interval_seconds", 1)
 
     process_config = measurements.setdefault("process", {})
-    #process_config.setdefault("enabled", True) - valor criado mas nao eh utilizado
     process_config.setdefault("capture_stdout", True)
     process_config.setdefault("capture_stderr", True)
 
@@ -2212,6 +2211,87 @@ def resolve_interface(node, logical_name):
 
     return logical_name
 
+def read_interface_counters(node, interface):
+    """
+    Read all Linux counters of one interface with one docker exec.
+
+    Direct docker exec avoids the interactive Mininet shell and returns
+    stdout and the exit code separately.
+    """
+
+    empty_snapshot = {
+        counter_name: None
+        for counter_name in INTERFACE_COUNTER_NAMES
+    }
+
+    counter_names = " ".join(INTERFACE_COUNTER_NAMES)
+
+    script = (
+        'counter_dir="/sys/class/net/$1/statistics"\n'
+        f"for counter in {counter_names}; do\n"
+        '    if [ -r "$counter_dir/$counter" ]; then\n'
+        '        value=$(cat "$counter_dir/$counter")\n'
+        '        printf "%s=%s\\n" "$counter" "$value"\n'
+        "    else\n"
+        '        printf "%s=\\n" "$counter"\n'
+        "    fi\n"
+        "done"
+    )
+
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "exec",
+                node.did,
+                "sh",
+                "-c",
+                script,
+                "sh",
+                interface,
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Timed out while collecting counters from "
+            f"{node.name}:{interface}."
+        ) from exc
+
+    if completed.returncode != 0:
+        error = completed.stderr.strip() or "unknown error"
+
+        raise RuntimeError(
+            f"Could not collect counters from "
+            f"{node.name}:{interface}: {error}"
+        )
+
+    snapshot = dict(empty_snapshot)
+
+    for line in completed.stdout.splitlines():
+        name, separator, raw_value = line.partition("=")
+
+        if not separator or name not in snapshot:
+            continue
+
+        try:
+            snapshot[name] = int(raw_value.strip())
+        except ValueError:
+            snapshot[name] = None
+
+    if all(value is None for value in snapshot.values()):
+        raise RuntimeError(
+            f"No valid counters were returned for "
+            f"{node.name}:{interface}. "
+            f"Output: {completed.stdout!r}"
+        )
+
+    return snapshot
+
 
 def start_packet_captures(
     scenario,
@@ -2413,36 +2493,12 @@ def collect_interface_counters(
                 logical_interface,
             )
 
-            interface_snapshot = {}
-
-            for counter_name in INTERFACE_COUNTER_NAMES:
-                counter_path = (
-                    f"/sys/class/net/{interface}/"
-                    f"statistics/{counter_name}"
-                )
-
-                output, exit_code = run_command(
+            node_snapshot[interface] = (
+                read_interface_counters(
                     station,
-                    f"cat {shlex.quote(counter_path)}",
-                    f"read {interface} {counter_name}",
-                    must_succeed=False,
+                    interface,
                 )
-
-                if exit_code == 0:
-                    try:
-                        interface_snapshot[
-                            counter_name
-                        ] = int(output.strip())
-                    except ValueError:
-                        interface_snapshot[
-                            counter_name
-                        ] = None
-                else:
-                    interface_snapshot[
-                        counter_name
-                    ] = None
-
-            node_snapshot[interface] = interface_snapshot
+            )
 
         snapshot["nodes"][identity] = node_snapshot
 
