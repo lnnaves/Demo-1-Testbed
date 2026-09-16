@@ -1060,6 +1060,29 @@ def validate_scenario(scenario):
 
     measurements = scenario["measurements"]
 
+    if measurements["batman"].get("collect_periodically"):
+        raise ValueError(
+            "measurements.batman.collect_periodically "
+            "is not implemented yet. Use false."
+        )
+
+    if measurements["active_probes"].get("enabled"):
+        raise ValueError(
+            "measurements.active_probes.enabled "
+            "is not implemented yet. Use false."
+        )
+
+    if measurements["wmediumd"].get("capture_log"):
+        raise ValueError(
+            "measurements.wmediumd.capture_log "
+            "is not implemented yet. Use false."
+        )
+
+    positive_number(
+         measurements.get("sampling_interval_seconds"),
+         "measurements.sampling_interval_seconds",
+     )
+
     positive_number(
         measurements.get("sampling_interval_seconds"),
         "measurements.sampling_interval_seconds",
@@ -3050,19 +3073,6 @@ def topology(
                     f"Could not stop "
                     f"{capture.process_id}: {exc}"
                 )
-
-        if (
-            scenario["measurements"]["wmediumd"][
-                "capture_log"
-            ]
-        ):
-            summary["warnings"].append(
-                "wmediumd log capture was requested, but the "
-                "current Containernet/Mininet-WiFi integration "
-                "does not expose a stable per-experiment log "
-                "path. PCAPs and interface/BATMAN counters were "
-                "captured normally."
-            )
 
         if net is not None:
             info("*** Stopping network\n")

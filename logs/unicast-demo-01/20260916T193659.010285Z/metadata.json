@@ -1,0 +1,26 @@
+{
+  "experiment_id": "unicast-demo-01",
+  "scenario_file": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/scripts/scenario.example.yml",
+  "started_at": "2026-09-16T19:36:59.014078+00:00",
+  "finished_at": null,
+  "status": "running",
+  "mode": null,
+  "results_directory": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/logs/unicast-demo-01/20260916T193659.010285Z",
+  "binary_status": {
+    "sender": {
+      "required": true,
+      "path": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/bin/sender",
+      "available": false
+    },
+    "receiver": {
+      "required": true,
+      "path": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/bin/receiver",
+      "available": false
+    }
+  },
+  "missing_container_binaries": [],
+  "processes": [],
+  "counter_differences": {},
+  "warnings": [],
+  "error": null
+}

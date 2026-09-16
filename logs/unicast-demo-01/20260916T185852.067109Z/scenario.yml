@@ -1,0 +1,135 @@
+experiment:
+  id: unicast-demo-01
+  seed: 42
+  duration_seconds: 60
+containers:
+  image: drone:latest
+  binaries_directory: /opt/protocol/bin
+  sender_binary: sender
+  receiver_binary: receiver
+execution:
+  enabled: true
+  missing_binaries: idle
+network:
+  interface: bat0
+  subnet: 192.168.123.0/24
+  wireless:
+    ssid: adhocNet
+    mode: g
+    channel: 5
+    bssid: 02:11:22:33:44:55
+    ht_cap: HT40+
+  medium:
+    mode: interference
+    noise_threshold_dbm: -91
+    fading_coefficient: 3
+    propagation:
+      model: logDistance
+      exponent: 3.5
+nodes:
+- identity: drone-1
+  container_name: dr1
+  type: drone
+  image: drone:latest
+  memory: 4g
+  ip: 192.168.123.1/24
+  roles:
+  - sender
+  position:
+    x: 10
+    y: 20
+    z: 0
+  txpower_dbm: 10
+  range_meters: 25
+- identity: drone-2
+  container_name: dr2
+  type: drone
+  image: drone:latest
+  memory: 4g
+  ip: 192.168.123.2/24
+  roles:
+  - receiver
+  position:
+    x: 30
+    y: 40
+    z: 0
+  txpower_dbm: 10
+  range_meters: 25
+- identity: drone-3
+  container_name: dr3
+  type: drone
+  image: drone:latest
+  memory: 4g
+  ip: 192.168.123.3/24
+  roles:
+  - receiver
+  position:
+    x: 27
+    y: 33
+    z: 0
+  txpower_dbm: 10
+  range_meters: 25
+- identity: gcs
+  container_name: gcs0
+  type: gcs
+  image: drone:latest
+  memory: 16g
+  ip: 192.168.123.5/24
+  roles:
+  - sender
+  - receiver
+  position:
+    x: 10
+    y: 10
+    z: 0
+  txpower_dbm: 10
+  range_meters: 25
+mobility:
+  enabled: false
+  model: static
+  update_interval_seconds: 1
+  speed_mps:
+    min: 1
+    max: 5
+communication:
+  mode: unicast
+  port: 9000
+  transmission:
+    count: 10
+  flows:
+  - source: drone-1
+    destination: drone-2
+  broadcasts: []
+readiness:
+  expected_output: READY
+  timeout_seconds: 10
+termination:
+  condition: senders_completed
+  shutdown_timeout_seconds: 5
+measurements:
+  enabled: true
+  sampling_interval_seconds: 1
+  process:
+    capture_stdout: true
+    capture_stderr: true
+  packet_capture:
+    enabled: true
+    interfaces:
+    - bat0
+    snaplen: 0
+    immediate_mode: true
+    filter: ''
+  interface_counters:
+    enabled: true
+    interfaces:
+    - bat0
+    - wlan0
+  batman:
+    enabled: true
+    collect_periodically: false
+  wmediumd:
+    capture_log: false
+  active_probes:
+    enabled: false
+results:
+  directory: ./logs

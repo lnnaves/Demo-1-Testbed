@@ -1,0 +1,28 @@
+{
+  "experiment_id": "unicast-demo-01",
+  "scenario_file": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/scripts/scenario.example.yml",
+  "started_at": "2026-09-16T19:32:29.595661+00:00",
+  "finished_at": "2026-09-16T19:32:31.038677+00:00",
+  "status": "failed",
+  "mode": null,
+  "results_directory": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/logs/unicast-demo-01/20260916T193229.591764Z",
+  "binary_status": {
+    "sender": {
+      "required": true,
+      "path": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/bin/sender",
+      "available": false
+    },
+    "receiver": {
+      "required": true,
+      "path": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/bin/receiver",
+      "available": false
+    }
+  },
+  "missing_container_binaries": [],
+  "processes": [],
+  "counter_differences": {},
+  "warnings": [
+    "Final metrics collection failed: cannot access local variable 'stations' where it is not associated with a value"
+  ],
+  "error": "409 Client Error for http+docker://localhost/v1.52/containers/create?name=mn.dr1: Conflict (\"Conflict. The container name \"/mn.dr1\" is already in use by container \"fba2e0b8865e29e9c427ee688aeea7fcadfe4af493f2d0096b584d59e3cb6cc3\". You have to remove (or rename) that container to be able to reuse that name.\")"
+}

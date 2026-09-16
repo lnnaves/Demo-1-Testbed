@@ -1,0 +1,146 @@
+{
+  "experiment_id": "unicast-demo-01",
+  "scenario_file": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/scripts/scenario.example.yml",
+  "started_at": "2026-09-16T18:20:29.046146+00:00",
+  "finished_at": "2026-09-16T18:21:41.890690+00:00",
+  "status": "completed",
+  "mode": "idle",
+  "results_directory": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/logs/unicast-demo-01/20260916T182029.042296Z",
+  "binary_status": {
+    "sender": {
+      "required": true,
+      "path": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/bin/sender",
+      "available": false
+    },
+    "receiver": {
+      "required": true,
+      "path": "/home/laura/Documents/Unicamp/Projeto/Testbed_demo1/bin/receiver",
+      "available": false
+    }
+  },
+  "missing_container_binaries": [
+    {
+      "identity": "drone-1",
+      "container": "dr1",
+      "role": "sender",
+      "path": "/opt/protocol/bin/sender"
+    },
+    {
+      "identity": "drone-2",
+      "container": "dr2",
+      "role": "receiver",
+      "path": "/opt/protocol/bin/receiver"
+    },
+    {
+      "identity": "drone-3",
+      "container": "dr3",
+      "role": "receiver",
+      "path": "/opt/protocol/bin/receiver"
+    },
+    {
+      "identity": "gcs",
+      "container": "gcs0",
+      "role": "sender",
+      "path": "/opt/protocol/bin/sender"
+    },
+    {
+      "identity": "gcs",
+      "container": "gcs0",
+      "role": "receiver",
+      "path": "/opt/protocol/bin/receiver"
+    }
+  ],
+  "processes": [],
+  "counter_differences": {
+    "drone-1": {
+      "bat0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      },
+      "dr1-wlan0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      }
+    },
+    "drone-2": {
+      "bat0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      },
+      "dr2-wlan0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      }
+    },
+    "drone-3": {
+      "bat0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      },
+      "dr3-wlan0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      }
+    },
+    "gcs": {
+      "bat0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      },
+      "gcs0-wlan0": {
+        "rx_bytes": null,
+        "tx_bytes": null,
+        "rx_packets": null,
+        "tx_packets": null,
+        "rx_dropped": null,
+        "tx_dropped": null,
+        "rx_errors": null,
+        "tx_errors": null
+      }
+    }
+  },
+  "warnings": [],
+  "error": null
+}
