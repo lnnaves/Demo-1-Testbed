@@ -1083,10 +1083,6 @@ def validate_scenario(scenario):
          "measurements.sampling_interval_seconds",
      )
 
-    positive_number(
-        measurements.get("sampling_interval_seconds"),
-        "measurements.sampling_interval_seconds",
-    )
 
     packet_capture = measurements["packet_capture"]
 

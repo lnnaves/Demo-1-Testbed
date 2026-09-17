@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-09-16T20:53:47.500771+00:00",
+  "nodes": {
+    "drone-1": {
+      "bat0": {
+        "rx_bytes": 336,
+        "tx_bytes": 90,
+        "rx_packets": 8,
+        "tx_packets": 1,
+        "rx_dropped": 0,
+        "tx_dropped": 7,
+        "rx_errors": 0,
+        "tx_errors": 0
+      },
+      "dr1-wlan0": {
+        "rx_bytes": 42708,
+        "tx_bytes": 18552,
+        "rx_packets": 642,
+        "tx_packets": 219,
+        "rx_dropped": 0,
+        "tx_dropped": 19,
+        "rx_errors": 0,
+        "tx_errors": 0
+      }
+    },
+    "drone-2": {
+      "bat0": {
+        "rx_bytes": 336,
+        "tx_bytes": 90,
+        "rx_packets": 8,
+        "tx_packets": 1,
+        "rx_dropped": 0,
+        "tx_dropped": 8,
+        "rx_errors": 0,
+        "tx_errors": 0
+      },
+      "dr2-wlan0": {
+        "rx_bytes": 42708,
+        "tx_bytes": 18552,
+        "rx_packets": 642,
+        "tx_packets": 219,
+        "rx_dropped": 0,
+        "tx_dropped": 19,
+        "rx_errors": 0,
+        "tx_errors": 0
+      }
+    },
+    "drone-3": {
+      "bat0": {
+        "rx_bytes": 336,
+        "tx_bytes": 90,
+        "rx_packets": 8,
+        "tx_packets": 1,
+        "rx_dropped": 0,
+        "tx_dropped": 7,
+        "rx_errors": 0,
+        "tx_errors": 0
+      },
+      "dr3-wlan0": {
+        "rx_bytes": 42708,
+        "tx_bytes": 18552,
+        "rx_packets": 642,
+        "tx_packets": 219,
+        "rx_dropped": 0,
+        "tx_dropped": 19,
+        "rx_errors": 0,
+        "tx_errors": 0
+      }
+    },
+    "gcs": {
+      "bat0": {
+        "rx_bytes": 336,
+        "tx_bytes": 90,
+        "rx_packets": 8,
+        "tx_packets": 1,
+        "rx_dropped": 0,
+        "tx_dropped": 8,
+        "rx_errors": 0,
+        "tx_errors": 0
+      },
+      "gcs0-wlan0": {
+        "rx_bytes": 42708,
+        "tx_bytes": 18552,
+        "rx_packets": 642,
+        "tx_packets": 219,
+        "rx_dropped": 0,
+        "tx_dropped": 19,
+        "rx_errors": 0,
+        "tx_errors": 0
+      }
+    }
+  }
+}

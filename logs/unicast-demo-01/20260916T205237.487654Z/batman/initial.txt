@@ -1,0 +1,345 @@
+timestamp=2026-09-16T20:52:47.405441+00:00
+
+================================================================================
+node=drone-1 container=dr1
+
+--- interfaces ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+dr1-wlan0: active
+
+[?2004h
+
+--- neighbors ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: dr1-wlan0/02:00:00:00:00:01 (bat0/ae:59:bd:e8:84:24 BATMAN_IV)]
+IF             Neighbor              last-seen
+
+[?2004h
+
+--- originators ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: dr1-wlan0/02:00:00:00:00:01 (bat0/ae:59:bd:e8:84:24 BATMAN_IV)]
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+
+[?2004h
+
+--- statistics ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+	tx: 1
+	tx_bytes: 90
+	tx_dropped: 7
+	rx: 1
+	rx_bytes: 42
+	forward: 0
+	forward_bytes: 0
+	mgmt_tx: 5
+	mgmt_tx_bytes: 478
+	mgmt_rx: 0
+	mgmt_rx_bytes: 0
+	frag_tx: 0
+	frag_tx_bytes: 0
+	frag_rx: 0
+	frag_rx_bytes: 0
+	frag_fwd: 0
+	frag_fwd_bytes: 0
+	tt_request_tx: 0
+	tt_request_rx: 0
+	tt_response_tx: 0
+	tt_response_rx: 0
+	tt_roam_adv_tx: 0
+	tt_roam_adv_rx: 0
+	mcast_tx: 0
+	mcast_tx_bytes: 0
+	mcast_tx_local: 0
+	mcast_tx_local_bytes: 0
+	mcast_rx: 0
+	mcast_rx_bytes: 0
+	mcast_rx_local: 0
+	mcast_rx_local_bytes: 0
+	mcast_fwd: 0
+	mcast_fwd_bytes: 0
+	dat_get_tx: 0
+	dat_get_rx: 0
+	dat_put_tx: 0
+	dat_put_rx: 0
+	dat_cached_reply_tx: 0
+
+[?2004h
+
+================================================================================
+node=drone-2 container=dr2
+
+--- interfaces ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+dr2-wlan0: active
+
+[?2004h
+
+--- neighbors ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: dr2-wlan0/02:00:00:00:00:02 (bat0/ce:5d:14:25:01:47 BATMAN_IV)]
+IF             Neighbor              last-seen
+
+[?2004h
+
+--- originators ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: dr2-wlan0/02:00:00:00:00:02 (bat0/ce:5d:14:25:01:47 BATMAN_IV)]
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+
+[?2004h
+
+--- statistics ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+	tx: 1
+	tx_bytes: 90
+	tx_dropped: 8
+	rx: 1
+	rx_bytes: 42
+	forward: 0
+	forward_bytes: 0
+	mgmt_tx: 5
+	mgmt_tx_bytes: 478
+	mgmt_rx: 0
+	mgmt_rx_bytes: 0
+	frag_tx: 0
+	frag_tx_bytes: 0
+	frag_rx: 0
+	frag_rx_bytes: 0
+	frag_fwd: 0
+	frag_fwd_bytes: 0
+	tt_request_tx: 0
+	tt_request_rx: 0
+	tt_response_tx: 0
+	tt_response_rx: 0
+	tt_roam_adv_tx: 0
+	tt_roam_adv_rx: 0
+	mcast_tx: 0
+	mcast_tx_bytes: 0
+	mcast_tx_local: 0
+	mcast_tx_local_bytes: 0
+	mcast_rx: 0
+	mcast_rx_bytes: 0
+	mcast_rx_local: 0
+	mcast_rx_local_bytes: 0
+	mcast_fwd: 0
+	mcast_fwd_bytes: 0
+	dat_get_tx: 0
+	dat_get_rx: 0
+	dat_put_tx: 0
+	dat_put_rx: 0
+	dat_cached_reply_tx: 0
+
+[?2004h
+
+================================================================================
+node=drone-3 container=dr3
+
+--- interfaces ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+dr3-wlan0: active
+
+[?2004h
+
+--- neighbors ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: dr3-wlan0/02:00:00:00:00:03 (bat0/e2:39:79:da:86:3f BATMAN_IV)]
+IF             Neighbor              last-seen
+
+[?2004h
+
+--- originators ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: dr3-wlan0/02:00:00:00:00:03 (bat0/e2:39:79:da:86:3f BATMAN_IV)]
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+
+[?2004h
+
+--- statistics ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+	tx: 1
+	tx_bytes: 90
+	tx_dropped: 7
+	rx: 1
+	rx_bytes: 42
+	forward: 0
+	forward_bytes: 0
+	mgmt_tx: 5
+	mgmt_tx_bytes: 478
+	mgmt_rx: 0
+	mgmt_rx_bytes: 0
+	frag_tx: 0
+	frag_tx_bytes: 0
+	frag_rx: 0
+	frag_rx_bytes: 0
+	frag_fwd: 0
+	frag_fwd_bytes: 0
+	tt_request_tx: 0
+	tt_request_rx: 0
+	tt_response_tx: 0
+	tt_response_rx: 0
+	tt_roam_adv_tx: 0
+	tt_roam_adv_rx: 0
+	mcast_tx: 0
+	mcast_tx_bytes: 0
+	mcast_tx_local: 0
+	mcast_tx_local_bytes: 0
+	mcast_rx: 0
+	mcast_rx_bytes: 0
+	mcast_rx_local: 0
+	mcast_rx_local_bytes: 0
+	mcast_fwd: 0
+	mcast_fwd_bytes: 0
+	dat_get_tx: 0
+	dat_get_rx: 0
+	dat_put_tx: 0
+	dat_put_rx: 0
+	dat_cached_reply_tx: 0
+
+[?2004h
+
+================================================================================
+node=gcs container=gcs0
+
+--- interfaces ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+gcs0-wlan0: active
+
+[?2004h
+
+--- neighbors ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: gcs0-wlan0/02:00:00:00:00:04 (bat0/8a:f2:17:eb:0a:60 BATMAN_IV)]
+IF             Neighbor              last-seen
+
+[?2004h
+
+--- originators ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+[B.A.T.M.A.N. adv 2025.5, MainIF/MAC: gcs0-wlan0/02:00:00:00:00:04 (bat0/8a:f2:17:eb:0a:60 BATMAN_IV)]
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+
+[?2004h
+
+--- statistics ---
+[?2004l
+
+[?2004h> [?2004l
+
+[?2004h> [?2004l
+
+	tx: 1
+	tx_bytes: 90
+	tx_dropped: 8
+	rx: 1
+	rx_bytes: 42
+	forward: 0
+	forward_bytes: 0
+	mgmt_tx: 5
+	mgmt_tx_bytes: 478
+	mgmt_rx: 0
+	mgmt_rx_bytes: 0
+	frag_tx: 0
+	frag_tx_bytes: 0
+	frag_rx: 0
+	frag_rx_bytes: 0
+	frag_fwd: 0
+	frag_fwd_bytes: 0
+	tt_request_tx: 0
+	tt_request_rx: 0
+	tt_response_tx: 0
+	tt_response_rx: 0
+	tt_roam_adv_tx: 0
+	tt_roam_adv_rx: 0
+	mcast_tx: 0
+	mcast_tx_bytes: 0
+	mcast_tx_local: 0
+	mcast_tx_local_bytes: 0
+	mcast_rx: 0
+	mcast_rx_bytes: 0
+	mcast_rx_local: 0
+	mcast_rx_local_bytes: 0
+	mcast_fwd: 0
+	mcast_fwd_bytes: 0
+	dat_get_tx: 0
+	dat_get_rx: 0
+	dat_put_tx: 0
+	dat_put_rx: 0
+	dat_cached_reply_tx: 0
+
+[?2004h
