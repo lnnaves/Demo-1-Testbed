@@ -28,6 +28,7 @@ wireless:
 
 nodes:
   - id: gcs
+    container_name: gcs0
     ip: 192.168.123.1/24
     position: [0, 0, 0]
     image: drone:latest
@@ -35,6 +36,7 @@ nodes:
     txpower: 10
     range: 25
   - id: drone1
+    container_name: dr1
     ip: 192.168.123.2/24
     position: [25, 0, 0]
     image: drone:latest
@@ -42,6 +44,7 @@ nodes:
     txpower: 10
     range: 25
   - id: drone2
+    container_name: dr2
     ip: 192.168.123.3/24
     position: [50, 0, 0]
     image: drone:latest
