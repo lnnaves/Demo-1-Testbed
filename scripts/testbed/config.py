@@ -59,9 +59,16 @@ def _executable(root: Path, value: str, path: str) -> dict[str, str]:
     host_path = _path_from_root(root, value, path)
     if not host_path.is_file() or not os.access(host_path, os.X_OK):
         raise ConfigError(f"{path} must point to an executable file: {host_path}")
+
+    bin_dir = (root / "bin").resolve()
+    try:
+        relative = host_path.relative_to(bin_dir)
+    except ValueError:
+        raise ConfigError(f"{path} must be located under {bin_dir}") from None
+
     return {
         "host": str(host_path),
-        "container": f"{CONTAINER_BIN_DIR}/{host_path.name}",
+        "container": f"{CONTAINER_BIN_DIR}/{relative.as_posix()}",
     }
 
 
@@ -145,6 +152,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         raise ConfigError("nodes must be a non-empty list")
 
     normalized_nodes: dict[str, dict[str, Any]] = {}
+    container_names: dict[str, str] = {}
     for index, node_data in enumerate(nodes):
         node = _require_mapping(node_data, f"nodes[{index}]")
         name = _require_string(node.get("id"), f"nodes[{index}].id")
@@ -152,6 +160,30 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             raise ConfigError(f"nodes[{index}].id contains invalid characters")
         if name in normalized_nodes:
             raise ConfigError(f"duplicate node id: {name}")
+
+        container_name = _require_string(
+            node.get("container_name", name), f"nodes[{index}].container_name"
+        )
+        if not _NODE_ID.match(container_name):
+            raise ConfigError(f"nodes[{index}].container_name contains invalid characters")
+        if not re.search(r"\d", container_name):
+            # Mininet-WiFi/BATMAN internally derives node numbering from the
+            # station name (see manetRoutingProtocols.setIP), so a name
+            # without any digit crashes with "list index out of range".
+            raise ConfigError(f"nodes[{index}].container_name must contain at least one digit")
+        if container_name in container_names:
+            raise ConfigError(
+                f"duplicate container_name: {container_name} "
+                f"(nodes[{index}] and node {container_names[container_name]!r})"
+            )
+        container_names[container_name] = name
+
+        wlan_name = f"{container_name}-wlan0"
+        if len(wlan_name) > 15:
+            raise ConfigError(
+                f"nodes[{index}].container_name produces an interface name "
+                f"longer than 15 characters: {wlan_name}"
+            )
 
         ip = _require_string(node.get("ip"), f"nodes[{index}].ip")
         interface = ipaddress.ip_interface(ip)
@@ -165,6 +197,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
 
         normalized_nodes[name] = {
             "id": name,
+            "container_name": container_name,
             "ip": ip,
             "address": _plain_ip(ip),
             "position": position,
