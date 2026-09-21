@@ -37,7 +37,6 @@ def main() -> int:
     print(f"Executing: {Path(__file__).resolve()}", file=sys.stderr)
 
     try:
-        phase = "load_config"
         config = load_config(args.config)
 
         phase = "build_network"
