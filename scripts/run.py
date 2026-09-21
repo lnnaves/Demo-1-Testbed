@@ -11,6 +11,8 @@ from testbed.metrics import start_capture, write_outputs
 from testbed.network import build_network, cleanup_mininet
 from testbed.runner import execute_protocol
 
+DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the MVP Demo-1 testbed experiment.")
@@ -80,9 +82,11 @@ def main() -> int:
     finally:
         if capture is not None:
             try:
-                timeout = 5.0
+                timeout = DEFAULT_SHUTDOWN_TIMEOUT_SECONDS
                 if config is not None:
-                    timeout = config["experiment"].get("shutdown_timeout_seconds", 5.0)
+                    timeout = config["experiment"].get(
+                        "shutdown_timeout_seconds", DEFAULT_SHUTDOWN_TIMEOUT_SECONDS
+                    )
                 capture.stop(timeout)
             except Exception as cleanup_error:
                 print(f"warning: could not stop capture: {cleanup_error}", file=sys.stderr)

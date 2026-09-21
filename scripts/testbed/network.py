@@ -143,6 +143,11 @@ def _configure_node(node: Any, node_cfg: dict[str, Any], wireless: dict[str, Any
     subnet = ipaddress.ip_network(wireless["subnet"])
 
     run_node_command(node, "bring up wlan interface", f"ip link set {wlan} up")
+    # Failures here are intentionally NOT swallowed with "|| true" as before:
+    # per the confirmed root cause of this bug, silently ignoring ad hoc join
+    # failures let the experiment "succeed" with zero packets ever reaching
+    # the receiver. If a driver needs a real retry policy, add it explicitly
+    # instead of hiding the error.
     run_node_command(
         node,
         "join ad hoc network",
@@ -237,12 +242,16 @@ def _has_address(ip_addr_output: str, expected_ip: ipaddress.IPv4Address | ipadd
 
 
 def _has_route_to_subnet(ip_route_output: str, expected_subnet: ipaddress.IPv4Network | ipaddress.IPv6Network) -> bool:
-    for line in ip_route_output.splitlines():
-        candidate = line.strip().split()[0] if line.strip() else ""
+    # "ip route show dev <iface>" output starts each line with the
+    # destination network/host, but be defensive and scan every
+    # whitespace-separated token so unusual formatting doesn't hide a route
+    # that is actually present.
+    for token in ip_route_output.split():
         try:
-            if ipaddress.ip_network(candidate, strict=False) == expected_subnet:
+            candidate = ipaddress.ip_network(token, strict=False)
+            if candidate == expected_subnet or candidate.supernet_of(expected_subnet):
                 return True
-        except ValueError:
+        except (ValueError, TypeError):
             continue
     return False
 
