@@ -189,7 +189,7 @@ def validate_network(config: dict[str, Any], nodes: dict[str, Any]) -> None:
     """Validate essential network state before the protocol is executed.
 
     This intentionally fails loudly (instead of silently continuing with a
-    broken mesh) so a experiment never reports success when receivers never
+    broken mesh) so an experiment never reports success when receivers never
     actually got any packets.
     """
     wireless = config["wireless"]
