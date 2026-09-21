@@ -205,13 +205,13 @@ def validate_network(config: dict[str, Any], nodes: dict[str, Any]) -> None:
 
         expected_ip = ipaddress.ip_interface(node_cfg["ip"]).ip
         _, addr_state = run_node_command(node, "check bat0 address", f"ip addr show {interface}")
-        if str(expected_ip) not in addr_state:
+        if not _has_address(addr_state, expected_ip):
             raise NetworkValidationError(
                 f"node {node.name}: expected address {expected_ip} not found on {interface}"
             )
 
         _, route_state = run_node_command(node, "check mesh route", f"ip route show dev {interface}")
-        if str(subnet) not in route_state:
+        if not _has_route_to_subnet(route_state, subnet):
             raise NetworkValidationError(
                 f"node {node.name}: missing route to {subnet} via {interface}"
             )
@@ -224,6 +224,27 @@ def _has_flag(ip_link_output: str, flag: str) -> bool:
     if not match:
         return False
     return flag in match.group(1).split(",")
+
+
+def _has_address(ip_addr_output: str, expected_ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    for match in re.finditer(r"inet6?\s+([0-9a-fA-F:.]+)(?:/\d+)?", ip_addr_output):
+        try:
+            if ipaddress.ip_address(match.group(1)) == expected_ip:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _has_route_to_subnet(ip_route_output: str, expected_subnet: ipaddress.IPv4Network | ipaddress.IPv6Network) -> bool:
+    for line in ip_route_output.splitlines():
+        candidate = line.strip().split()[0] if line.strip() else ""
+        try:
+            if ipaddress.ip_network(candidate, strict=False) == expected_subnet:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _validate_sender_reachability(config: dict[str, Any], nodes: dict[str, Any]) -> None:

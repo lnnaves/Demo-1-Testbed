@@ -1,3 +1,4 @@
+import ipaddress
 import unittest
 
 from scripts.testbed.network import (
@@ -5,7 +6,9 @@ from scripts.testbed.network import (
     NodeCommandError,
     _EXIT_MARKER,
     _attach_wlan_to_batman,
+    _has_address,
     _has_flag,
+    _has_route_to_subnet,
     channel_to_frequency,
     run_node_command,
     validate_network,
@@ -115,6 +118,27 @@ class HasFlagTests(unittest.TestCase):
     def test_detects_missing_flag(self):
         output = "3: bat0: <BROADCAST,MULTICAST> mtu 1500"
         self.assertFalse(_has_flag(output, "UP"))
+
+
+class HasAddressTests(unittest.TestCase):
+    def test_matches_exact_address(self):
+        output = "inet 192.168.123.1/24 scope global bat0"
+        self.assertTrue(_has_address(output, ipaddress.ip_address("192.168.123.1")))
+
+    def test_does_not_match_similar_address_prefix(self):
+        # ".1" must not be treated as a substring match of ".10".
+        output = "inet 192.168.123.10/24 scope global bat0"
+        self.assertFalse(_has_address(output, ipaddress.ip_address("192.168.123.1")))
+
+
+class HasRouteToSubnetTests(unittest.TestCase):
+    def test_matches_exact_subnet(self):
+        output = "192.168.123.0/24 proto kernel scope link src 192.168.123.2"
+        self.assertTrue(_has_route_to_subnet(output, ipaddress.ip_network("192.168.123.0/24")))
+
+    def test_does_not_match_overlapping_subnet(self):
+        output = "192.168.123.0/25 proto kernel scope link src 192.168.123.2"
+        self.assertFalse(_has_route_to_subnet(output, ipaddress.ip_network("192.168.123.0/24")))
 
 
 def _validation_config():
