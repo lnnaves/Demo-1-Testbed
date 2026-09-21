@@ -150,7 +150,7 @@ def _configure_node(node: Any, node_cfg: dict[str, Any], wireless: dict[str, Any
         f"{wireless['ht_cap']} fixed-freq {wireless['bssid']}",
     )
     run_node_command(node, "load batman-adv kernel module", "modprobe batman-adv")
-    _attach_wlan_to_batman(node, wlan)
+    _attach_wlan_to_batman(node, wlan, interface)
     run_node_command(node, "bring up bat0", f"ip link set {interface} up")
     run_node_command(node, "flush existing bat0 addresses", f"ip addr flush dev {interface}")
     run_node_command(node, "assign node address to bat0", f"ip addr add {node_cfg['ip']} dev {interface}")
@@ -161,12 +161,12 @@ def _configure_node(node: Any, node_cfg: dict[str, Any], wireless: dict[str, Any
     )
 
 
-def _attach_wlan_to_batman(node: Any, wlan: str) -> None:
+def _attach_wlan_to_batman(node: Any, wlan: str, interface: str) -> None:
     # batctl's CLI changed between versions ("batctl if add" vs
     # "batctl meshif <mesh> interface add"). Try the modern syntax first and
     # fall back to the legacy one, but never hide the final failure.
     commands = [
-        f"batctl meshif bat0 interface add {wlan}",
+        f"batctl meshif {interface} interface add {wlan}",
         f"batctl if add {wlan}",
     ]
     last_error: NodeCommandError | None = None

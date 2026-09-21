@@ -86,7 +86,7 @@ class AttachWlanToBatmanTests(unittest.TestCase):
                 "batctl if add gcs0-wlan0": (0, ""),
             },
         )
-        _attach_wlan_to_batman(node, "gcs0-wlan0")
+        _attach_wlan_to_batman(node, "gcs0-wlan0", "bat0")
         self.assertEqual(
             node.commands,
             [
@@ -104,7 +104,7 @@ class AttachWlanToBatmanTests(unittest.TestCase):
             },
         )
         with self.assertRaises(NodeCommandError):
-            _attach_wlan_to_batman(node, "gcs0-wlan0")
+            _attach_wlan_to_batman(node, "gcs0-wlan0", "bat0")
 
 
 class HasFlagTests(unittest.TestCase):
