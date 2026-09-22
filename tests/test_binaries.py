@@ -73,7 +73,6 @@ class BinaryTests(unittest.TestCase):
 
     def prepare_rx_running_state(self):
         self.set_receiver_running(True)
-        self.addCleanup(setattr, self.receiver, "running", True)
 
     def test_sender_rejects_invalid_port(self):
         code, stdout, stderr = self.run_main(
