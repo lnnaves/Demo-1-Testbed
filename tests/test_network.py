@@ -283,8 +283,6 @@ class NetworkContextTests(unittest.TestCase):
         self.assertEqual(net.stop_calls, 2)
 
     def test_stop_is_safe_when_net_raises(self):
-        net = FakeNet()
-
         class RaisingNet:
             def stop(self):
                 raise RuntimeError("already stopped")
