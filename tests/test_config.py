@@ -117,7 +117,7 @@ class ConfigTests(unittest.TestCase):
         self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [missing]"))
 
     def test_duplicate_node_ids_are_rejected(self):
-        self.assert_rejected(CONFIG.replace("  - id: drone2", "  - id: gcs"))
+        self.assert_rejected(CONFIG.replace("  - id: drone2", "  - id: gcs"), "duplicate node id")
 
     def test_duplicate_container_names_are_rejected(self):
         self.assert_rejected(CONFIG.replace("container_name: dr1", "container_name: gcs0"))

@@ -12,6 +12,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "config.yml"
 CONTAINER_BIN_DIR = "/opt/protocol/bin"
 _NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+PROTOCOL_UNICAST = "unicast"
+PROTOCOL_BROADCAST = "broadcast"
+SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 
 
 class ConfigError(ValueError):
@@ -117,7 +120,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     )
 
     mode = _require_string(protocol.get("mode", "unicast"), "protocol.mode")
-    if mode not in {"unicast", "broadcast"}:
+    if mode not in SUPPORTED_PROTOCOL_MODES:
         raise ConfigError("protocol.mode must be 'unicast' or 'broadcast'")
 
     port = _positive_int(protocol.get("port"), "protocol.port")
@@ -136,7 +139,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         raise ConfigError("protocol.receivers must not contain duplicates")
     if sender in receivers:
         raise ConfigError("protocol.sender cannot also be listed in protocol.receivers")
-    if mode == "unicast" and len(receivers) != 1:
+    if mode == PROTOCOL_UNICAST and len(receivers) != 1:
         raise ConfigError("protocol.receivers must contain exactly one receiver in unicast mode")
 
     try:
@@ -246,9 +249,11 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "range": float(_require_number(node.get("range", 25), f"nodes[{index}].range")),
         }
 
-    for role_path, role_name in (("protocol.sender", sender), *[("protocol.receivers[]", receiver) for receiver in receivers]):
-        if role_name not in normalized_nodes:
-            raise ConfigError(f"{role_path} references unknown node: {role_name}")
+    if sender not in normalized_nodes:
+        raise ConfigError(f"protocol.sender references unknown node: {sender}")
+    for receiver in receivers:
+        if receiver not in normalized_nodes:
+            raise ConfigError(f"protocol.receivers[] references unknown node: {receiver}")
 
     binaries = _require_mapping(data.get("binaries", {}), "binaries")
     normalized_binaries = {
