@@ -49,6 +49,9 @@ class FakeSocket:
         self.sent.append((payload, address))
         return len(payload)
 
+    def recvfrom(self, _size):
+        raise TimeoutError()
+
 
 class BinaryTests(unittest.TestCase):
     def setUp(self):
@@ -61,6 +64,11 @@ class BinaryTests(unittest.TestCase):
         with patch.object(sys, "argv", argv), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = module.main()
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def set_receiver_running(self, value):
+        original = self.receiver.running
+        self.receiver.running = value
+        self.addCleanup(setattr, self.receiver, "running", original)
 
     def test_sender_rejects_invalid_port(self):
         code, stdout, stderr = self.run_main(
@@ -148,7 +156,7 @@ class BinaryTests(unittest.TestCase):
             text = payload.decode("utf-8")
             self.assertIn(f"sequence={index}", text)
             timestamp = text.split("timestamp_ns=", 1)[1]
-            self.assertTrue(timestamp.isdigit())
+            self.assertEqual(timestamp, str(99 + index))
 
     def test_sender_sendto_failure_returns_operational_error(self):
         fake = FakeSocket()
@@ -196,7 +204,7 @@ class BinaryTests(unittest.TestCase):
 
     def test_receiver_main_reinitializes_stop_flag_before_rx(self):
         fake = FakeSocket()
-        self.receiver.running = False
+        self.set_receiver_running(False)
 
         def assert_running(_sock):
             self.assertTrue(self.receiver.running)
@@ -214,6 +222,7 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(stderr, "")
 
     def test_rx_counts_only_datagrams_received(self):
+        self.set_receiver_running(True)
         fake = FakeSocket()
         messages = [(b"one", ("127.0.0.1", 1000)), (b"two", ("127.0.0.1", 1000))]
 
@@ -231,6 +240,7 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(fake.timeout, 0.5)
 
     def test_receiver_timeout_does_not_increment_count(self):
+        self.set_receiver_running(True)
         fake = FakeSocket()
 
         def recvfrom(_size):
@@ -244,6 +254,7 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(received, 0)
 
     def test_receiver_stop_flag_allows_controlled_exit_without_traffic(self):
+        self.set_receiver_running(True)
         self.receiver.stop(None, None)
         fake = FakeSocket()
         fake.recvfrom = Mock()
