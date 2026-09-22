@@ -136,9 +136,11 @@ def stop_receivers(records: list[ProcessRecord], timeout: float) -> list[str]:
     """Terminate receivers, reporting only spontaneous (unrequested) exits.
 
     A receiver already flagged with an exit_code (e.g. a startup failure) is
-    left untouched here. Any other receiver found already dead before we ask
-    it to stop exited on its own and is reported as a failure. Receivers that
-    are still running are stopped with terminate()/kill(); that controlled
+    skipped by the failure/termination check below, since it was already
+    accounted for; its stdout/stderr/duration are still collected in the
+    final pass. Any other receiver found already dead before we ask it to
+    stop exited on its own and is reported as a failure. Receivers that are
+    still running are stopped with terminate()/kill(); that controlled
     shutdown is normal lifecycle and never produces a failure by itself.
     """
     failures: list[str] = []
