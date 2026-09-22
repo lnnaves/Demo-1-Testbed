@@ -151,7 +151,10 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     except ValueError as exc:
         raise ConfigError(f"wireless.broadcast_ip is invalid: {exc}") from exc
     if broadcast_ip != subnet.broadcast_address:
-        raise ConfigError("wireless.broadcast_ip must match the broadcast address derived from wireless.subnet")
+        raise ConfigError(
+            "wireless.broadcast_ip must match the broadcast address derived from "
+            f"wireless.subnet: got {broadcast_ip}, expected {subnet.broadcast_address}"
+        )
 
     normalized_wireless = {
         "ssid": _require_string(wireless.get("ssid", "meshNet"), "wireless.ssid"),

@@ -119,6 +119,8 @@ class ConfigTests(unittest.TestCase):
         self.assert_rejected(CONFIG.replace("container_name: dr1", "container_name: gcs0"))
 
     def test_container_name_without_digit_or_long_interface_is_rejected(self):
+        # Mininet-WiFi derives node numbering with findall(r"\d+", name)[0],
+        # and Linux limits the generated "<container_name>-wlan0" to 15 chars.
         self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs"))
         self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs0123456"))
 
