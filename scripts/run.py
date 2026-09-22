@@ -61,9 +61,11 @@ def main() -> int:
             print("Experiment completed successfully.")
             return 0
 
-        print("Experiment completed with failures:", file=sys.stderr)
+        print(f"Experiment completed with {summary['status']} status:", file=sys.stderr)
         for failure in summary.get("failures", []):
             print(f"  - {failure}", file=sys.stderr)
+        for warning in summary.get("warnings", []):
+            print(f"  - warning: {warning}", file=sys.stderr)
         return 1
 
     except ConfigError as exc:
