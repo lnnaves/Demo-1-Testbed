@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""Validate the single scenario configured in scripts/config.yml.
+
+This helper never reads/writes more than one YAML file, never toggles
+`protocol.mode` automatically, and never generates temporary YAML files to
+switch scenarios. It executes `scripts/run.py <config>` exactly once and
+validates the resulting summary against the mode already selected by the
+user in the loaded configuration.
+"""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +16,6 @@ import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,20 +23,9 @@ from testbed.config import ConfigError, load_config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUN_SCRIPT = PROJECT_ROOT / "scripts" / "run.py"
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "scripts" / "config.yml"
 RECEIVER_STOPPED = re.compile(r"Receiver stopped after (\d+) packets")
 TX_LINE = re.compile(r"^TX \d+:", re.MULTILINE)
-
-
-@dataclass(frozen=True)
-class Scenario:
-    name: str
-    config_path: Path
-
-
-SCENARIOS = (
-    Scenario("Unicast", PROJECT_ROOT / "scripts" / "config.unicast.yml"),
-    Scenario("Broadcast", PROJECT_ROOT / "scripts" / "config.broadcast.yml"),
-)
 
 
 def _run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -71,8 +67,6 @@ def _batman_adv_is_available() -> bool:
 
 def check_prerequisites() -> list[str]:
     missing: list[str] = []
-    if os.geteuid() != 0:
-        missing.append("script must be executed as root; run: sudo python3 scripts/validate_scenarios.py")
     for command in ("docker", "mn", "tcpdump", "wmediumd"):
         if not _command_exists(command):
             missing.append(f"required command not found in PATH: {command}")
@@ -121,6 +115,18 @@ def _assert_file_readable(path_value: str, errors: list[str]) -> None:
         errors.append(f"output is not readable: {path}: {exc}")
 
 
+def _expected_destination(config: dict[str, Any]) -> str:
+    protocol = config["protocol"]
+    expected_receivers = protocol["receivers"]
+    if protocol["mode"] == "unicast":
+        if len(expected_receivers) != 1:
+            raise ValueError("unicast mode requires exactly one configured receiver")
+        return config["nodes"][expected_receivers[0]]["address"]
+    if protocol["mode"] == "broadcast":
+        return config["wireless"]["broadcast_ip"]
+    raise ValueError(f"unsupported protocol mode: {protocol['mode']}")
+
+
 def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     protocol = config["protocol"]
@@ -160,12 +166,16 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
     command = sender.get("command") or []
     if "--mode" in command:
         errors.append("sender command must not contain --mode")
-    if protocol["mode"] == "broadcast" and config["wireless"]["broadcast_ip"] not in command:
-        errors.append("broadcast sender command does not use wireless.broadcast_ip")
-    if protocol["mode"] == "unicast":
-        receiver_address = config["nodes"][expected_receivers[0]]["address"]
-        if receiver_address not in command:
-            errors.append("unicast sender command does not use the single receiver address")
+
+    try:
+        expected_destination = _expected_destination(config)
+    except ValueError as exc:
+        errors.append(str(exc))
+    else:
+        if expected_destination not in command:
+            errors.append(
+                f"sender command does not use the expected {protocol['mode']} destination: {expected_destination}"
+            )
 
     metrics = summary.get("metrics") or {}
     if not isinstance(metrics.get("packet_count"), int) or metrics.get("packet_count") <= 0:
@@ -176,16 +186,6 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
         _assert_file_readable(outputs.get(key, ""), errors)
 
     return errors
-
-
-def remove_scenario_outputs(config: dict[str, Any]) -> None:
-    for key in ("pcap", "csv", "summary"):
-        path = Path(config["output"][key])
-        try:
-            path.relative_to(PROJECT_ROOT / "logs")
-        except ValueError:
-            continue
-        path.unlink(missing_ok=True)
 
 
 def check_cleanup(config: dict[str, Any]) -> list[str]:
@@ -202,18 +202,18 @@ def check_cleanup(config: dict[str, Any]) -> list[str]:
     return errors
 
 
-def run_scenario(scenario: Scenario) -> tuple[bool, str]:
+def run_scenario(config_path: Path) -> tuple[bool, str]:
     try:
-        config = load_config(scenario.config_path)
+        config = load_config(config_path)
     except ConfigError as exc:
-        return False, f"{scenario.name}: FALHOU - configuração inválida: {exc}"
+        return False, f"FALHOU - configuração inválida: {exc}"
 
-    remove_scenario_outputs(config)
-    command = [sys.executable, str(RUN_SCRIPT), str(scenario.config_path)]
+    mode = config["protocol"]["mode"]
+    command = [sys.executable, str(RUN_SCRIPT), str(config_path)]
     result = _run(command, cwd=PROJECT_ROOT)
     if result.returncode != 0:
         return False, (
-            f"{scenario.name}: FALHOU - comando retornou {result.returncode}\n"
+            f"{mode}: FALHOU - comando retornou {result.returncode}\n"
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )
@@ -222,23 +222,31 @@ def run_scenario(scenario: Scenario) -> tuple[bool, str]:
     try:
         summary = _load_json(summary_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return False, f"{scenario.name}: FALHOU - summary ilegível: {exc}"
+        return False, f"{mode}: FALHOU - summary ilegível: {exc}"
 
     errors = validate_summary(config, summary)
     errors.extend(check_cleanup(config))
     if errors:
-        return False, f"{scenario.name}: FALHOU\n- " + "\n- ".join(errors)
+        return False, f"{mode}: FALHOU\n- " + "\n- ".join(errors)
 
     counts = _receiver_counts(summary)
     capture_count = summary.get("metrics", {}).get("packet_count")
     return True, (
-        f"{scenario.name}: PASSOU - enviados={config['protocol']['count']} "
+        f"{mode}: PASSOU - enviados={config['protocol']['count']} "
         f"recebidos={counts} captura_udp={capture_count}"
     )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate MVP Unicast and Broadcast scenarios end-to-end.")
+    parser = argparse.ArgumentParser(
+        description="Validate the single scenario (Unicast or Broadcast) selected in scripts/config.yml."
+    )
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default=str(DEFAULT_CONFIG_PATH),
+        help="Path to the YAML configuration. Defaults to scripts/config.yml.",
+    )
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
@@ -249,20 +257,22 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    config_path = Path(args.config)
+
     if not args.skip_preflight:
-        missing = check_prerequisites()
+        missing: list[str] = []
+        if os.geteuid() != 0:
+            missing.append("script must be executed as root; run: sudo python3 scripts/validate_scenario.py")
+        missing.extend(check_prerequisites())
         if missing:
             print("NÃO EXECUTADO: ambiente sem pré-requisitos para validação real.", file=sys.stderr)
             for item in missing:
                 print(f"- {item}", file=sys.stderr)
             return 3
 
-    for scenario in SCENARIOS:
-        ok, message = run_scenario(scenario)
-        print(message)
-        if not ok:
-            return 1
-    return 0
+    ok, message = run_scenario(config_path)
+    print(message)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
