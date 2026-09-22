@@ -147,12 +147,6 @@ def _configure_node(node: Any, node_cfg: dict[str, Any], wireless: dict[str, Any
     # failures let the experiment "succeed" with zero packets ever reaching
     # the receiver. If a driver needs a real retry policy, add it explicitly
     # instead of hiding the error.
-    run_node_command(
-        node,
-        "join ad hoc network",
-        f"iw dev {wlan} ibss join {wireless['ssid']} {frequency} "
-        f"{wireless['ht_cap']} fixed-freq {wireless['bssid']}",
-    )
     run_node_command(node, "load batman-adv kernel module", "modprobe batman-adv")
     _attach_wlan_to_batman(node, wlan, interface)
     run_node_command(node, "bring up bat0", f"ip link set {interface} up")
