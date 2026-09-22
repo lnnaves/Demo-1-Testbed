@@ -73,16 +73,22 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
                 "--port",
                 str(protocol["port"]),
             ]
-            receiver_records.append(
-                ProcessRecord("receiver", receiver_name, command, _spawn(receiver_node, command), time.monotonic())
-            )
+            try:
+                process = _spawn(receiver_node, command)
+            except OSError as exc:
+                # Abort starting further receivers; already-spawned ones are
+                # cleaned up in the `finally` block below.
+                failures.append(f"failed to start receiver {receiver_name}: {exc}")
+                break
+            receiver_records.append(ProcessRecord("receiver", receiver_name, command, process, time.monotonic()))
 
-        time.sleep(experiment["receiver_startup_seconds"])
-        for record in receiver_records:
-            exit_code = record.process.poll()
-            if exit_code is not None:
-                record.exit_code = exit_code
-                failures.append(f"receiver {record.node} exited during startup with code {exit_code}")
+        if not failures:
+            time.sleep(experiment["receiver_startup_seconds"])
+            for record in receiver_records:
+                exit_code = record.process.poll()
+                if exit_code is not None:
+                    record.exit_code = exit_code
+                    failures.append(f"receiver {record.node} exited during startup with code {exit_code}")
 
         if not failures:
             destination = select_destination(config)
@@ -97,32 +103,57 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
                 "--count",
                 str(protocol["count"]),
             ]
-            sender_record = ProcessRecord("sender", sender_name, command, _spawn(sender_node, command), time.monotonic())
-
-            remaining = max(0.1, experiment["duration_seconds"] - (time.monotonic() - start))
             try:
-                sender_record.finish(timeout=remaining)
-            except subprocess.TimeoutExpired:
-                sender_record.process.terminate()
-                try:
-                    sender_record.finish(timeout=config["experiment"]["shutdown_timeout_seconds"])
-                except subprocess.TimeoutExpired:
-                    sender_record.process.kill()
-                    sender_record.finish(timeout=None)
-                failures.append("sender timed out")
+                sender_process = _spawn(sender_node, command)
+            except OSError as exc:
+                failures.append(f"failed to start sender {sender_name}: {exc}")
+            else:
+                sender_record = ProcessRecord("sender", sender_name, command, sender_process, time.monotonic())
 
-            if sender_record.exit_code != 0:
-                failures.append(f"sender exited with code {sender_record.exit_code}")
+                remaining = max(0.1, experiment["duration_seconds"] - (time.monotonic() - start))
+                timed_out = False
+                try:
+                    sender_record.finish(timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    sender_record.process.terminate()
+                    try:
+                        sender_record.finish(timeout=experiment["shutdown_timeout_seconds"])
+                    except subprocess.TimeoutExpired:
+                        sender_record.process.kill()
+                        sender_record.finish(timeout=None)
+                    failures.append("sender timed out")
+
+                if not timed_out and sender_record.exit_code != 0:
+                    failures.append(f"sender exited with code {sender_record.exit_code}")
     finally:
-        stop_receivers(receiver_records, experiment["shutdown_timeout_seconds"])
+        failures.extend(stop_receivers(receiver_records, experiment["shutdown_timeout_seconds"]))
 
     return _build_result(start, sender_record, receiver_records, failures)
 
 
-def stop_receivers(records: list[ProcessRecord], timeout: float) -> None:
+def stop_receivers(records: list[ProcessRecord], timeout: float) -> list[str]:
+    """Terminate receivers, reporting only spontaneous (unrequested) exits.
+
+    Three cases per receiver:
+    - already flagged with an exit_code (e.g. a startup failure): skipped by
+      the failure/termination check, since it was already accounted for; its
+      stdout/stderr/duration are still collected in the final pass below.
+    - found already dead, but not previously flagged: it exited on its own
+      and is reported as a failure.
+    - still running: stopped with terminate()/kill(); this controlled
+      shutdown is normal lifecycle and never produces a failure by itself.
+    """
+    failures: list[str] = []
     for record in records:
-        if record.process.poll() is None:
+        if record.exit_code is not None:
+            continue
+        exit_code = record.process.poll()
+        if exit_code is not None:
+            failures.append(f"receiver {record.node} exited unexpectedly with code {exit_code}")
+        else:
             record.process.terminate()
+
     for record in records:
         if record.ended_at is not None:
             continue
@@ -131,6 +162,8 @@ def stop_receivers(records: list[ProcessRecord], timeout: float) -> None:
         except subprocess.TimeoutExpired:
             record.process.kill()
             record.finish(timeout=None)
+
+    return failures
 
 
 def _record_summary(record: ProcessRecord | None) -> dict[str, Any] | None:
@@ -152,6 +185,9 @@ def _build_result(
     receivers: list[ProcessRecord],
     failures: list[str],
 ) -> dict[str, Any]:
+    # "status" reflects only the process lifecycle (spawn/startup/exit/timeout
+    # outcomes). It does not confirm that any packet was actually delivered;
+    # delivery evidence belongs to metrics/summary, not to the runner.
     return {
         "status": "success" if not failures else "failed",
         "duration_seconds": time.monotonic() - start,
