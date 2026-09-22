@@ -87,7 +87,7 @@ def load_config(path: str | Path | None = None, root: str | Path | None = None) 
         with config_path.open("r", encoding="utf-8") as config_file:
             raw = yaml.safe_load(config_file) or {}
     except yaml.YAMLError as exc:
-        raise ConfigError(f"invalid YAML in {config_path}: {exc}") from None
+        raise ConfigError(f"invalid YAML in {config_path}: {exc}") from exc
 
     data = _require_mapping(raw, "config")
     return normalize_config(data, project_root, config_path)
@@ -142,16 +142,14 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     try:
         subnet = ipaddress.ip_network(_require_string(wireless.get("subnet"), "wireless.subnet"), strict=False)
     except ValueError as exc:
-        raise ConfigError(f"wireless.subnet is invalid: {exc}") from None
+        raise ConfigError(f"wireless.subnet is invalid: {exc}") from exc
 
     try:
         broadcast_ip = ipaddress.ip_address(
             _require_string(wireless.get("broadcast_ip", str(subnet.broadcast_address)), "wireless.broadcast_ip")
         )
     except ValueError as exc:
-        raise ConfigError(f"wireless.broadcast_ip is invalid: {exc}") from None
-    if broadcast_ip not in subnet:
-        raise ConfigError("wireless.broadcast_ip must belong to wireless.subnet")
+        raise ConfigError(f"wireless.broadcast_ip is invalid: {exc}") from exc
     if broadcast_ip != subnet.broadcast_address:
         raise ConfigError("wireless.broadcast_ip must match the broadcast address derived from wireless.subnet")
 
@@ -212,7 +210,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         try:
             interface = ipaddress.ip_interface(ip)
         except ValueError as exc:
-            raise ConfigError(f"nodes[{index}].ip is invalid: {exc}") from None
+            raise ConfigError(f"nodes[{index}].ip is invalid: {exc}") from exc
         if interface.ip not in subnet:
             raise ConfigError(f"nodes[{index}].ip is outside wireless.subnet")
         if interface.ip in {subnet.network_address, subnet.broadcast_address}:
