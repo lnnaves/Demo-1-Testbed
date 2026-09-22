@@ -73,21 +73,21 @@ class ValidateScenarioTests(unittest.TestCase):
 
         self.assertIn(config["protocol"]["mode"], ("unicast", "broadcast"))
 
-    def test_expected_destination_for_unicast_is_the_single_receiver_address(self):
+    def test_destination_for_unicast_is_the_single_receiver_address(self):
         config = _config(mode="unicast", receivers=["gcs"])
 
-        self.assertEqual(validate_scenario._expected_destination(config), "192.168.123.1")
+        self.assertEqual(validate_scenario.select_destination(config), "192.168.123.1")
 
-    def test_expected_destination_for_broadcast_is_wireless_broadcast_ip(self):
+    def test_destination_for_broadcast_is_wireless_broadcast_ip(self):
         config = _config(mode="broadcast", receivers=["gcs", "drone2"])
 
-        self.assertEqual(validate_scenario._expected_destination(config), "192.168.123.255")
+        self.assertEqual(validate_scenario.select_destination(config), "192.168.123.255")
 
-    def test_expected_destination_rejects_unicast_with_multiple_receivers(self):
+    def test_destination_rejects_unicast_with_multiple_receivers(self):
         config = _config(mode="unicast", receivers=["gcs", "drone2"])
 
         with self.assertRaises(ValueError):
-            validate_scenario._expected_destination(config)
+            validate_scenario.select_destination(config)
 
     def test_validate_summary_accepts_unicast_matching_the_single_configured_receiver(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,6 +153,11 @@ class ValidateScenarioTests(unittest.TestCase):
         run_mock.assert_called_once()
         command = run_mock.call_args[0][0]
         self.assertEqual(command[-1], str(config_path))
+
+    def test_validation_reuses_the_runner_destination_rule(self):
+        from testbed.runner import select_destination
+
+        self.assertIs(validate_scenario.select_destination, select_destination)
 
     def test_run_scenario_never_iterates_a_list_of_both_modes(self):
         # There is a single scenario per invocation: no SCENARIOS/list-of-modes

@@ -1,83 +1,36 @@
 # Demo-1-Testbed
 
-MVP modular do testbed para executar um experimento simples com Containernet, Mininet-WiFi, rede ad hoc BATMAN-adv, captura PCAP e relatórios CSV/JSON.
+MVP modular do testbed para executar um experimento simples com Containernet,
+Mininet-WiFi, rede ad hoc BATMAN-adv, captura PCAP e relatórios CSV/JSON.
 
-## Arquitetura: uma única configuração, um único modo por execução
+## Arquitetura: uma configuração, um modo por execução
 
 Há uma única configuração persistente, `scripts/config.yml`. O usuário escolhe
 exatamente um modo por execução em `protocol.mode`, e o restante do fluxo é
 automático:
 
 ```text
-scripts/config.yml
-       ↓
-protocol.mode
-       ↓
-unicast OU broadcast
-       ↓
-run.py → network.py → runner.py → metrics.py
+scripts/config.yml → protocol.mode → run.py → network.py → runner.py → metrics.py
 ```
 
-- **apenas um modo é executado por invocação** — nunca os dois em sequência;
-- mudar `protocol.mode` muda o cenário da **próxima** execução, não da atual;
-- o usuário não escolhe outro script nem outro arquivo YAML;
-- o runner (`scripts/testbed/runner.py`, função `select_destination`) escolhe
-  automaticamente o destino do sender a partir do modo configurado;
-- o Containernet/Mininet-WiFi monta sempre a mesma infraestrutura de rede
-  ad hoc BATMAN-adv, independentemente do modo;
-- a validação real de qualquer um dos modos exige o ambiente privilegiado
-  listado abaixo.
-
-Exemplo mínimo para Unicast (`drone1` envia somente para `gcs`):
+- apenas o modo configurado é executado por invocação, nunca os dois em sequência;
+- não existe outro YAML de cenário nem outro script de execução;
+- em `unicast`, o runner exige exatamente um receiver configurado, inicia apenas
+  esse receiver e usa o IP dele como destino do sender;
+- em `broadcast`, o runner inicia todos os receivers configurados e usa
+  `wireless.broadcast_ip` como destino;
+- o Containernet/Mininet-WiFi monta a mesma infraestrutura ad hoc BATMAN-adv nos
+  dois modos.
 
 ```yaml
 protocol:
-  mode: unicast
+  mode: unicast      # ou: broadcast
   sender: drone1
   receivers:
-    - gcs
+    - gcs            # broadcast aceita vários receivers
 ```
 
-Exemplo mínimo para Broadcast (`drone1` envia para todos os receivers
-configurados):
-
-```yaml
-protocol:
-  mode: broadcast
-  sender: drone1
-  receivers:
-    - gcs
-    - drone2
-```
-
-Em Unicast, o runner exige exatamente um receiver configurado e usa o IP
-desse receiver como destino. Em Broadcast, o runner inicia todos os
-receivers configurados e usa `wireless.broadcast_ip` como destino.
-
-## Uso
-
-1. Disponibilize `bin/sender` e `bin/receiver` executáveis conforme `bin/BIN_INTERFACE.md`.
-2. Ajuste `scripts/config.yml` com nós, IPs, WiFi, `protocol.mode` (`unicast` ou `broadcast`), porta, quantidade e saídas.
-3. Execute com privilégios de rede:
-
-```bash
-sudo python3 scripts/run.py
-```
-
-Também é possível informar explicitamente o mesmo arquivo:
-
-```bash
-sudo python3 scripts/run.py scripts/config.yml
-```
-
-Não existe outro YAML de cenário: para alternar entre Unicast e Broadcast,
-edite `protocol.mode` em `scripts/config.yml` e execute novamente.
-
-As saídas padrão são gravadas em `logs/`: PCAP, CSV e `summary.json`.
-
-## Validação real do MVP
-
-Pré-requisitos para validar o modo configurado como evidência real:
+## Pré-requisitos
 
 - Linux com privilégios root;
 - Docker funcional;
@@ -85,58 +38,84 @@ Pré-requisitos para validar o modo configurado como evidência real:
 - `wmediumd` disponível;
 - BATMAN-adv disponível no host para o lifecycle nativo do Mininet-WiFi;
 - comandos `mn` e `tcpdump` disponíveis;
-- imagem `drone:latest` construída de `dockerfiles/Dockerfile.drone` ou imagem equivalente compatível.
+- imagem `drone:latest` construída de `dockerfiles/Dockerfile.drone`;
+- `bin/sender` e `bin/receiver` executáveis conforme `bin/BIN_INTERFACE.md`.
 
-Para construir a imagem local padrão:
+## Build da imagem
+
+```bash
+scripts/build-docker.sh
+```
+
+O script equivale a:
 
 ```bash
 docker build -t drone:latest -f dockerfiles/Dockerfile.drone .
 ```
 
-Para executar o modo já configurado em `scripts/config.yml`:
+## Execução e validação
+
+Ajuste `scripts/config.yml` (nós, IPs, WiFi, `protocol.mode`, porta, quantidade e
+saídas) e execute o modo configurado:
 
 ```bash
 sudo python3 scripts/run.py
+# opcionalmente, informando o caminho explícito da mesma configuração:
+sudo python3 scripts/run.py scripts/config.yml
 ```
 
-Há também um verificador opcional que valida **somente o modo já
-selecionado** em `scripts/config.yml` (ou em outro caminho informado
-explicitamente):
+Para alternar entre Unicast e Broadcast, edite `protocol.mode` e execute
+novamente.
+
+Há um verificador opcional que valida **somente o modo já selecionado**:
 
 ```bash
 sudo python3 scripts/validate_scenario.py
 ```
 
-O verificador exige root explicitamente, checa os pré-requisitos, carrega
-`scripts/config.yml` e executa `scripts/run.py` **uma única vez**. Ele nunca
-edita o YAML, nunca alterna automaticamente entre Unicast e Broadcast e nunca
-gera arquivos YAML temporários para mudar o modo. A validação confere o
-summary produzido, a contagem final de cada receiver configurado no stdout
-dos binários de referência, o destino usado pelo sender (IP do único
-receiver em Unicast, ou `wireless.broadcast_ip` em Broadcast), a ausência de
-`--mode` no comando do sender, os status de processo/captura/tráfego e a
-existência/leitura dos artefatos PCAP/CSV/JSON. O retorno é `0` somente
-quando o cenário configurado passa; pré-requisito ausente, falha ou
-resultado inconclusivo retornam código não-zero, distinguindo
-PASSOU/FALHOU/NÃO EXECUTADO.
+Ele exige root, checa os pré-requisitos, carrega a configuração e executa
+`scripts/run.py` uma única vez. Nunca edita o YAML, nunca alterna de modo e
+nunca gera YAML temporário. Confere o summary, a contagem final de cada receiver
+configurado, o destino usado pelo sender, a ausência de `--mode` no comando do
+sender, os status de processo/captura/tráfego e a leitura dos artefatos. Retorna
+`0` apenas quando o cenário configurado passa; falha retorna `1` e pré-requisito
+ausente retorna `3` (**NÃO EXECUTADO**).
 
-Não use ping/iperf como critério de aprovação desse cenário. A validação
-funcional vem do comportamento real de `bin/sender`/`bin/receiver` e dos
-artefatos PCAP/CSV/JSON. Se o ambiente não oferecer privilégios, Docker,
-módulos de kernel ou dependências de Mininet-WiFi necessários, registre o
-bloqueio e marque o cenário como **NÃO EXECUTADO**; não afirme `PASSOU` sem
-execução real.
+## Saídas
+
+As saídas padrão são gravadas em `logs/` e não são versionadas:
+
+- PCAP capturado no sender;
+- CSV com as métricas da captura;
+- `summary.json` com status, processos, métricas e falhas.
+
+## Status e métricas
+
+- `success`: processos válidos, captura válida e tráfego UDP observado no sender;
+- `inconclusive`: processos e captura válidos, mas nenhum tráfego filtrado observado;
+- `failed`: falha de processo ou de captura.
+
+Interpretação honesta dos resultados:
+
+- o tráfego observado no sender **não comprova entrega** aos receivers;
+- as métricas `interval_*` são intervalos entre pacotes capturados e **não são
+  latência fim a fim**;
+- exit `0` dos binários significa apenas encerramento controlado;
+- ping e iperf não são critério de aprovação; a evidência vem do comportamento
+  real de `bin/sender`/`bin/receiver` e dos artefatos PCAP/CSV/JSON;
+- sem privilégios, Docker, módulos de kernel ou dependências do Mininet-WiFi, o
+  cenário é **NÃO EXECUTADO**; não afirme `PASSOU` sem execução real.
 
 ## Desenvolvimento
 
-Os módulos do núcleo ficam em `scripts/testbed/`:
+Módulos do núcleo em `scripts/testbed/`:
 
 - `config.py`: leitura e validação do YAML;
 - `network.py`: criação/limpeza da rede Containernet/Mininet-WiFi;
 - `runner.py`: lifecycle de receivers e sender;
 - `metrics.py`: tcpdump, CSV e summary JSON.
 
-Testes unitários não dependem de rede real:
+Testes unitários, que não dependem de rede real:
 
 ```bash
 python3 -m unittest discover -s tests

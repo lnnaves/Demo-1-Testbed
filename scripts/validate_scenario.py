@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from testbed.config import ConfigError, load_config
+from testbed.runner import select_destination
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUN_SCRIPT = PROJECT_ROOT / "scripts" / "run.py"
@@ -115,18 +116,6 @@ def _assert_file_readable(path_value: str, errors: list[str]) -> None:
         errors.append(f"output is not readable: {path}: {exc}")
 
 
-def _expected_destination(config: dict[str, Any]) -> str:
-    protocol = config["protocol"]
-    expected_receivers = protocol["receivers"]
-    if protocol["mode"] == "unicast":
-        if len(expected_receivers) != 1:
-            raise ValueError("unicast mode requires exactly one configured receiver")
-        return config["nodes"][expected_receivers[0]]["address"]
-    if protocol["mode"] == "broadcast":
-        return config["wireless"]["broadcast_ip"]
-    raise ValueError(f"unsupported protocol mode: {protocol['mode']}")
-
-
 def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     protocol = config["protocol"]
@@ -168,7 +157,9 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
         errors.append("sender command must not contain --mode")
 
     try:
-        expected_destination = _expected_destination(config)
+        # The expected destination comes from the same rule the runner applies,
+        # so this check never re-implements the unicast/broadcast selection.
+        expected_destination = select_destination(config)
     except ValueError as exc:
         errors.append(str(exc))
     else:
@@ -247,11 +238,6 @@ def parse_args() -> argparse.Namespace:
         default=str(DEFAULT_CONFIG_PATH),
         help="Path to the YAML configuration. Defaults to scripts/config.yml.",
     )
-    parser.add_argument(
-        "--skip-preflight",
-        action="store_true",
-        help="Only for controlled diagnostics/tests; do not skip preflight for real validation evidence.",
-    )
     return parser.parse_args()
 
 
@@ -259,16 +245,15 @@ def main() -> int:
     args = parse_args()
     config_path = Path(args.config)
 
-    if not args.skip_preflight:
-        missing: list[str] = []
-        if os.geteuid() != 0:
-            missing.append("script must be executed as root; run: sudo python3 scripts/validate_scenario.py")
-        missing.extend(check_prerequisites())
-        if missing:
-            print("NÃO EXECUTADO: ambiente sem pré-requisitos para validação real.", file=sys.stderr)
-            for item in missing:
-                print(f"- {item}", file=sys.stderr)
-            return 3
+    missing: list[str] = []
+    if os.geteuid() != 0:
+        missing.append("script must be executed as root; run: sudo python3 scripts/validate_scenario.py")
+    missing.extend(check_prerequisites())
+    if missing:
+        print("NÃO EXECUTADO: ambiente sem pré-requisitos para validação real.", file=sys.stderr)
+        for item in missing:
+            print(f"- {item}", file=sys.stderr)
+        return 3
 
     ok, message = run_scenario(config_path)
     print(message)

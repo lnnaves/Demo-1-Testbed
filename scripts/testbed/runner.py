@@ -19,10 +19,7 @@ class ProcessRecord:
     stderr: str = ""
 
     def finish(self, timeout: float | None = None) -> None:
-        try:
-            stdout, stderr = self.process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            raise
+        stdout, stderr = self.process.communicate(timeout=timeout)
         self.ended_at = time.monotonic()
         self.exit_code = self.process.poll()
         self.stdout = _decode(stdout)

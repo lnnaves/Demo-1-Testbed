@@ -160,7 +160,7 @@ def start_capture(config: dict[str, Any], nodes: dict[str, Any]) -> Capture:
     return Capture(
         nodes[sender],
         sender,
-        config["wireless"].get("interface", "bat0"),
+        config["wireless"]["interface"],
         config["protocol"]["port"],
         config["output"]["pcap"],
     ).start()
