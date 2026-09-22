@@ -135,13 +135,14 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
 def stop_receivers(records: list[ProcessRecord], timeout: float) -> list[str]:
     """Terminate receivers, reporting only spontaneous (unrequested) exits.
 
-    A receiver already flagged with an exit_code (e.g. a startup failure) is
-    skipped by the failure/termination check below, since it was already
-    accounted for; its stdout/stderr/duration are still collected in the
-    final pass. Any other receiver found already dead before we ask it to
-    stop exited on its own and is reported as a failure. Receivers that are
-    still running are stopped with terminate()/kill(); that controlled
-    shutdown is normal lifecycle and never produces a failure by itself.
+    Three cases per receiver:
+    - already flagged with an exit_code (e.g. a startup failure): skipped by
+      the failure/termination check, since it was already accounted for; its
+      stdout/stderr/duration are still collected in the final pass below.
+    - found already dead, but not previously flagged: it exited on its own
+      and is reported as a failure.
+    - still running: stopped with terminate()/kill(); this controlled
+      shutdown is normal lifecycle and never produces a failure by itself.
     """
     failures: list[str] = []
     for record in records:
