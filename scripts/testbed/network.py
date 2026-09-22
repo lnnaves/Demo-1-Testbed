@@ -92,6 +92,9 @@ _IP_ASSIGN_OK = "__IP_ASSIGN_OK__"
 
 
 def _assign_application_ip(node: Any, interface: str, ip_cidr: str) -> None:
+    # node.cmd() only returns the shell output, not an exit code, so success is
+    # detected via a trailing sentinel that only appears if every command in
+    # the chain succeeded.
     quoted_interface = shlex.quote(interface)
     quoted_ip = shlex.quote(ip_cidr)
     output = node.cmd(
