@@ -103,7 +103,8 @@ def _assign_application_ip(node: Any, interface: str, ip_cidr: str) -> None:
         f"ip addr add {quoted_ip} dev {quoted_interface} && "
         f"echo {_IP_ASSIGN_OK}"
     )
-    if not (output or "").strip().endswith(_IP_ASSIGN_OK):
+    lines = (output or "").splitlines()
+    if not lines or lines[-1].strip() != _IP_ASSIGN_OK:
         node_name = getattr(node, "name", "<unknown>")
         raise RuntimeError(
             f"failed to assign application IP {ip_cidr} to {interface} on node "
