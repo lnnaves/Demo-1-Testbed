@@ -90,8 +90,6 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
             sender_node = nodes[sender_name]
             command = [
                 config["binaries"]["sender"]["container"],
-                "--mode",
-                protocol["mode"],
                 "--destination",
                 destination,
                 "--port",

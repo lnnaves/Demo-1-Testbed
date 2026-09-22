@@ -74,10 +74,21 @@ class BinaryTests(unittest.TestCase):
     def prepare_rx_running_state(self):
         self.set_receiver_running(True)
 
+    def sender_argv(self, destination="127.0.0.1", port="5000", count="1"):
+        return [
+            "sender",
+            "--destination",
+            destination,
+            "--port",
+            port,
+            "--count",
+            count,
+        ]
+
     def test_sender_rejects_invalid_port(self):
         code, stdout, stderr = self.run_main(
             self.sender,
-            ["sender", "--mode", "unicast", "--destination", "127.0.0.1", "--port", "0", "--count", "1"],
+            self.sender_argv(port="0"),
         )
 
         self.assertEqual(code, 2)
@@ -87,7 +98,7 @@ class BinaryTests(unittest.TestCase):
     def test_sender_rejects_non_positive_count(self):
         code, stdout, stderr = self.run_main(
             self.sender,
-            ["sender", "--mode", "unicast", "--destination", "127.0.0.1", "--port", "5000", "--count", "0"],
+            self.sender_argv(count="0"),
         )
 
         self.assertEqual(code, 2)
@@ -98,17 +109,7 @@ class BinaryTests(unittest.TestCase):
         with patch.object(self.sender.socket, "socket") as socket_factory:
             code, stdout, stderr = self.run_main(
                 self.sender,
-                [
-                    "sender",
-                    "--mode",
-                    "unicast",
-                    "--destination",
-                    "not-an-ip",
-                    "--port",
-                    "5000",
-                    "--count",
-                    "1",
-                ],
+                self.sender_argv(destination="not-an-ip"),
             )
 
         self.assertEqual(code, 2)
@@ -116,34 +117,22 @@ class BinaryTests(unittest.TestCase):
         self.assertIn("Invalid destination IPv4 address", stderr)
         socket_factory.assert_not_called()
 
-    def test_sender_enables_broadcast_only_in_broadcast_mode(self):
-        for mode, expect_broadcast in (("unicast", False), ("broadcast", True)):
-            fake = FakeSocket()
-            with self.subTest(mode=mode), patch.object(self.sender.socket, "socket", return_value=fake):
-                code, stdout, stderr = self.run_main(
-                    self.sender,
-                    [
-                        "sender",
-                        "--mode",
-                        mode,
-                        "--destination",
-                        "127.0.0.1",
-                        "--port",
-                        "5000",
-                        "--count",
-                        "1",
-                    ],
-                )
+    def test_sender_contract_has_no_mode_and_allows_broadcast_destination(self):
+        fake = FakeSocket()
+        with patch.object(self.sender.socket, "socket", return_value=fake):
+            code, stdout, stderr = self.run_main(
+                self.sender,
+                self.sender_argv(destination="192.168.123.255"),
+            )
 
-                self.assertEqual(code, 0)
-                self.assertIn("Transmission completed", stdout)
-                self.assertEqual(stderr, "")
-                broadcast_options = [
-                    option
-                    for option in fake.options
-                    if option == (self.sender.socket.SOL_SOCKET, self.sender.socket.SO_BROADCAST, 1)
-                ]
-                self.assertEqual(bool(broadcast_options), expect_broadcast)
+        self.assertEqual(code, 0)
+        self.assertIn("Transmission completed", stdout)
+        self.assertEqual(stderr, "")
+        self.assertIn(
+            (self.sender.socket.SOL_SOCKET, self.sender.socket.SO_BROADCAST, 1),
+            fake.options,
+        )
+        self.assertEqual(fake.sent[0][1], ("192.168.123.255", 5000))
 
     def test_tx_sends_exactly_count_messages_with_sequence_and_timestamp(self):
         fake = FakeSocket()
@@ -172,7 +161,7 @@ class BinaryTests(unittest.TestCase):
         with patch.object(self.sender.socket, "socket", return_value=fake):
             code, stdout, stderr = self.run_main(
                 self.sender,
-                ["sender", "--mode", "unicast", "--destination", "127.0.0.1", "--port", "5000", "--count", "1"],
+                self.sender_argv(),
             )
 
         self.assertEqual(code, 1)

@@ -9,11 +9,6 @@ import time
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mode",
-        required=True,
-        choices=("unicast", "broadcast"),
-    )
     parser.add_argument("--destination", required=True)
     parser.add_argument("--port", required=True, type=int)
     parser.add_argument("--count", required=True, type=int)
@@ -63,19 +58,10 @@ def main():
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            if args.mode == "broadcast":
-                sock.setsockopt(
-                    socket.SOL_SOCKET,
-                    socket.SO_BROADCAST,
-                    1,
-                )
-
-            tx(
-                sock,
-                args.destination,
-                args.port,
-                args.count,
-            )
+            # This option only permits sending to a broadcast destination. It does
+            # not choose the scenario; config.yml and runner.py choose the IP.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            tx(sock, args.destination, args.port, args.count)
 
         print("Transmission completed", flush=True)
         return 0
