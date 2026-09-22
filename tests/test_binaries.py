@@ -220,7 +220,7 @@ class BinaryTests(unittest.TestCase):
         def recvfrom(_size):
             if messages:
                 return messages.pop(0)
-            self.receiver.running = False
+            self.receiver.stop(None, None)
             raise TimeoutError()
 
         fake.recvfrom = recvfrom
@@ -234,11 +234,12 @@ class BinaryTests(unittest.TestCase):
         fake = FakeSocket()
 
         def recvfrom(_size):
-            self.receiver.running = False
+            self.receiver.stop(None, None)
             raise TimeoutError()
 
         fake.recvfrom = recvfrom
-        received = self.receiver.rx(fake)
+        with contextlib.redirect_stdout(io.StringIO()):
+            received = self.receiver.rx(fake)
 
         self.assertEqual(received, 0)
 
@@ -247,7 +248,8 @@ class BinaryTests(unittest.TestCase):
         fake = FakeSocket()
         fake.recvfrom = Mock()
 
-        received = self.receiver.rx(fake)
+        with contextlib.redirect_stdout(io.StringIO()):
+            received = self.receiver.rx(fake)
 
         self.assertEqual(received, 0)
         fake.recvfrom.assert_not_called()
