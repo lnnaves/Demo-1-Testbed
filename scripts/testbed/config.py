@@ -133,19 +133,21 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     if not isinstance(receivers, list):
         raise ConfigError("protocol.receivers must be a list")
     receivers = [_require_string(item, "protocol.receivers[]") for item in receivers]
-    if not receivers:
-        raise ConfigError("protocol.receivers must contain at least one receiver")
     if len(receivers) != len(set(receivers)):
         raise ConfigError("protocol.receivers must not contain duplicates")
     if sender in receivers:
         raise ConfigError("protocol.sender cannot also be listed in protocol.receivers")
     if mode == PROTOCOL_UNICAST and len(receivers) != 1:
         raise ConfigError("protocol.receivers must contain exactly one receiver in unicast mode")
+    if mode == PROTOCOL_BROADCAST and not receivers:
+        raise ConfigError("protocol.receivers must contain at least one receiver in broadcast mode")
 
     try:
         subnet = ipaddress.ip_network(_require_string(wireless.get("subnet"), "wireless.subnet"), strict=False)
     except ValueError as exc:
         raise ConfigError(f"wireless.subnet is invalid: {exc}") from exc
+    if subnet.version != 4:
+        raise ConfigError("wireless.subnet must be an IPv4 subnet")
 
     try:
         broadcast_ip = ipaddress.ip_address(

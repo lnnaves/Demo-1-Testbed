@@ -83,8 +83,8 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(loaded["output"]["summary"].endswith(os.path.join("logs", "summary.json")))
 
     def test_valid_broadcast_config_with_multiple_receivers(self):
-        config_text = CONFIG.replace("mode: unicast", "mode: broadcast").replace(
-            "receivers: [gcs]", "receivers: [gcs, drone2]"
+        config_text = CONFIG.replace("mode: unicast", "mode: broadcast", 1).replace(
+            "receivers: [gcs]", "receivers: [gcs, drone2]", 1
         )
         tmp, root, config = self.make_root(config_text=config_text)
         with tmp:
@@ -94,58 +94,58 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["protocol"]["receivers"], ["gcs", "drone2"])
 
     def test_unicast_requires_exactly_one_receiver(self):
-        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: []"))
-        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [gcs, drone2]"))
+        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: []", 1))
+        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [gcs, drone2]", 1))
 
     def test_broadcast_requires_at_least_one_receiver(self):
-        config_text = CONFIG.replace("mode: unicast", "mode: broadcast").replace(
-            "receivers: [gcs]", "receivers: []"
+        config_text = CONFIG.replace("mode: unicast", "mode: broadcast", 1).replace(
+            "receivers: [gcs]", "receivers: []", 1
         )
         self.assert_rejected(config_text)
 
     def test_unknown_protocol_mode_is_rejected(self):
-        self.assert_rejected(CONFIG.replace("mode: unicast", "mode: multicast"), "protocol.mode")
+        self.assert_rejected(CONFIG.replace("mode: unicast", "mode: multicast", 1), "protocol.mode")
 
     def test_duplicate_receivers_are_rejected(self):
-        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [gcs, gcs]"))
+        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [gcs, gcs]", 1))
 
     def test_sender_cannot_also_be_receiver(self):
-        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [drone1]"))
+        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [drone1]", 1))
 
     def test_unknown_sender_or_receiver_is_rejected(self):
-        self.assert_rejected(CONFIG.replace("sender: drone1", "sender: missing"))
-        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [missing]"))
+        self.assert_rejected(CONFIG.replace("sender: drone1", "sender: missing", 1))
+        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [missing]", 1))
 
     def test_duplicate_node_ids_are_rejected(self):
-        self.assert_rejected(CONFIG.replace("  - id: drone2", "  - id: gcs"), "duplicate node id")
+        self.assert_rejected(CONFIG.replace("  - id: drone2", "  - id: gcs", 1), "duplicate node id")
 
     def test_duplicate_container_names_are_rejected(self):
-        self.assert_rejected(CONFIG.replace("container_name: dr1", "container_name: gcs0"))
+        self.assert_rejected(CONFIG.replace("container_name: dr1", "container_name: gcs0", 1))
 
     def test_container_name_without_digit_is_rejected(self):
         # Mininet-WiFi derives node numbering with findall(r"\d+", name)[0],
         # so station names without digits fail internally with IndexError.
-        self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs"))
+        self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs", 1))
 
     def test_container_name_long_interface_is_rejected(self):
         # Linux limits the generated "<container_name>-wlan0" to 15 chars.
-        self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs0123456"))
+        self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs0123456", 1))
 
     def test_duplicate_node_ip_is_rejected(self):
-        self.assert_rejected(CONFIG.replace("ip: 192.168.123.2/24", "ip: 192.168.123.1/24"))
+        self.assert_rejected(CONFIG.replace("ip: 192.168.123.2/24", "ip: 192.168.123.1/24", 1))
 
     def test_node_ip_outside_subnet_is_rejected(self):
-        self.assert_rejected(CONFIG.replace("ip: 192.168.123.2/24", "ip: 192.168.124.2/24"))
+        self.assert_rejected(CONFIG.replace("ip: 192.168.123.2/24", "ip: 192.168.124.2/24", 1))
 
     def test_node_cannot_use_network_or_broadcast_address(self):
-        self.assert_rejected(CONFIG.replace("ip: 192.168.123.1/24", "ip: 192.168.123.0/24"))
-        self.assert_rejected(CONFIG.replace("ip: 192.168.123.1/24", "ip: 192.168.123.255/24"))
+        self.assert_rejected(CONFIG.replace("ip: 192.168.123.1/24", "ip: 192.168.123.0/24", 1))
+        self.assert_rejected(CONFIG.replace("ip: 192.168.123.1/24", "ip: 192.168.123.255/24", 1))
 
     def test_inconsistent_broadcast_ip_is_rejected(self):
-        self.assert_rejected(CONFIG.replace("broadcast_ip: 192.168.123.255", "broadcast_ip: 192.168.123.254"))
+        self.assert_rejected(CONFIG.replace("broadcast_ip: 192.168.123.255", "broadcast_ip: 192.168.123.254", 1))
 
     def test_missing_broadcast_ip_is_derived_from_subnet(self):
-        config_text = CONFIG.replace("  broadcast_ip: 192.168.123.255\n", "")
+        config_text = CONFIG.replace("  broadcast_ip: 192.168.123.255\n", "", 1)
         tmp, root, config = self.make_root(config_text=config_text)
         with tmp:
             loaded = load_config(config, root=root)
@@ -153,21 +153,25 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["wireless"]["broadcast_ip"], "192.168.123.255")
 
     def test_position_must_have_three_numbers(self):
-        self.assert_rejected(CONFIG.replace("position: [0, 0, 0]", "position: [0, 0]"))
-        self.assert_rejected(CONFIG.replace("position: [0, 0, 0]", "position: [0, nope, 0]"))
+        self.assert_rejected(CONFIG.replace("position: [0, 0, 0]", "position: [0, 0]", 1))
+        self.assert_rejected(CONFIG.replace("position: [0, 0, 0]", "position: [0, nope, 0]", 1))
 
     def test_port_and_count_limits_are_enforced(self):
-        self.assert_rejected(CONFIG.replace("port: 5000", "port: 0"))
-        self.assert_rejected(CONFIG.replace("port: 5000", "port: 65536"))
-        self.assert_rejected(CONFIG.replace("count: 3", "count: 0"))
+        self.assert_rejected(CONFIG.replace("port: 5000", "port: 0", 1))
+        self.assert_rejected(CONFIG.replace("port: 5000", "port: 65536", 1))
+        self.assert_rejected(CONFIG.replace("count: 3", "count: 0", 1))
 
     def test_invalid_ip_or_yaml_errors_are_config_errors(self):
         self.assert_rejected(
-            CONFIG.replace("subnet: 192.168.123.0/24", "subnet: not-a-subnet"),
+            CONFIG.replace("subnet: 192.168.123.0/24", "subnet: not-a-subnet", 1),
             "wireless.subnet is invalid",
         )
         self.assert_rejected(
-            CONFIG.replace("ip: 192.168.123.1/24", "ip: not-an-ip"),
+            CONFIG.replace("subnet: 192.168.123.0/24", "subnet: 2001:db8::/64", 1),
+            "wireless.subnet must be an IPv4 subnet",
+        )
+        self.assert_rejected(
+            CONFIG.replace("ip: 192.168.123.1/24", "ip: not-an-ip", 1),
             r"nodes\[0\]\.ip is invalid",
         )
         tmp, root, config = self.make_root(config_text="experiment: [")
@@ -183,12 +187,12 @@ class ConfigTests(unittest.TestCase):
                 load_config(config, root=root)
 
     def test_executable_outside_bin_is_rejected(self):
-        config_text = CONFIG.replace("sender: bin/sender", "sender: sender")
+        config_text = CONFIG.replace("sender: bin/sender", "sender: sender", 1)
         tmp, root, config = self.make_root(config_text=config_text)
         with tmp:
             (root / "sender").write_text("#!/bin/sh\n", encoding="utf-8")
             (root / "sender").chmod(0o755)
-            with self.assertRaises(ConfigError):
+            with self.assertRaisesRegex(ConfigError, "must be located under"):
                 load_config(config, root=root)
 
     def test_container_name_is_separate_from_logical_id(self):
@@ -203,7 +207,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["protocol"]["receivers"], ["gcs"])
 
     def test_direct_bin_file_preserves_container_path(self):
-        config_text = CONFIG.replace("bin/sender", "bin/sender.py")
+        config_text = CONFIG.replace("bin/sender", "bin/sender.py", 1)
         tmp, root, config = self.make_root(
             config_text=config_text,
             extra_bin_files=["sender.py"],
@@ -214,7 +218,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["binaries"]["sender"]["container"], "/opt/protocol/bin/sender.py")
 
     def test_binary_in_bin_subdirectory_preserves_relative_path(self):
-        config_text = CONFIG.replace("bin/receiver", "bin/receiver/receiver.py")
+        config_text = CONFIG.replace("bin/receiver", "bin/receiver/receiver.py", 1)
         tmp, root, config = self.make_root(
             config_text=config_text,
             extra_bin_files=[os.path.join("receiver", "receiver.py")],
