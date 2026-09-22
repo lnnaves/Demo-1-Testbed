@@ -139,7 +139,6 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
 def _configure_node(node: Any, node_cfg: dict[str, Any], wireless: dict[str, Any]) -> None:
     wlan = f"{node_cfg['container_name']}-wlan0"
     interface = wireless["interface"]
-    frequency = channel_to_frequency(wireless["channel"])
     subnet = ipaddress.ip_network(wireless["subnet"])
 
     run_node_command(node, "bring up wlan interface", f"ip link set {wlan} up")
