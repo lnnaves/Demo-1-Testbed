@@ -88,14 +88,23 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
     return NetworkContext(net, nodes)
 
 
+_IP_ASSIGN_OK = "__IP_ASSIGN_OK__"
+
+
 def _assign_application_ip(node: Any, interface: str, ip_cidr: str) -> None:
     quoted_interface = shlex.quote(interface)
     quoted_ip = shlex.quote(ip_cidr)
-    node.cmd(
+    output = node.cmd(
         f"ip link set dev {quoted_interface} up && "
         f"ip addr flush dev {quoted_interface} && "
-        f"ip addr add {quoted_ip} dev {quoted_interface}"
+        f"ip addr add {quoted_ip} dev {quoted_interface} && "
+        f"echo {_IP_ASSIGN_OK}"
     )
+    if _IP_ASSIGN_OK not in (output or ""):
+        raise RuntimeError(
+            f"failed to assign application IP {ip_cidr} to {interface} on node "
+            f"{getattr(node, 'name', node)!r}: {(output or '').strip()!r}"
+        )
 
 
 def cleanup_mininet() -> None:

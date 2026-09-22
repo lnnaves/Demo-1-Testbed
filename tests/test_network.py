@@ -7,24 +7,33 @@ from scripts.testbed.network import _assign_application_ip, build_network
 
 
 class FakeStation:
-    def __init__(self, name):
+    def __init__(self, name, fail_ip_assign=False):
         self.name = name
         self.commands = []
+        self.fail_ip_assign = fail_ip_assign
 
     def cmd(self, command):
         self.commands.append(command)
+        if self.fail_ip_assign:
+            return "RTNETLINK answers: Operation not permitted"
+        if "&& echo " in command:
+            return command.rsplit("echo ", 1)[-1] + "\n"
         return ""
 
 
 class FakeNet:
     instances = []
     fail_on_start = False
+    fail_on_configure_nodes = False
+    fail_on_add_link = False
+    fail_ip_assign_for = frozenset()
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.propagation = None
         self.stations = []
         self.links = []
+        self.call_order = []
         self.configure_nodes_calls = 0
         self.start_calls = 0
         self.stop_calls = 0
@@ -34,17 +43,24 @@ class FakeNet:
         self.propagation = kwargs
 
     def addStation(self, name, **kwargs):
-        station = FakeStation(name)
+        station = FakeStation(name, fail_ip_assign=name in FakeNet.fail_ip_assign_for)
         self.stations.append((station, kwargs))
         return station
 
     def configureNodes(self):
+        self.call_order.append("configureNodes")
         self.configure_nodes_calls += 1
+        if FakeNet.fail_on_configure_nodes:
+            raise RuntimeError("configureNodes failed")
 
     def addLink(self, station, **kwargs):
+        self.call_order.append("addLink")
+        if FakeNet.fail_on_add_link:
+            raise RuntimeError("addLink failed")
         self.links.append((station, kwargs))
 
     def start(self):
+        self.call_order.append("start")
         self.start_calls += 1
         if FakeNet.fail_on_start:
             raise RuntimeError("start failed")
@@ -135,6 +151,9 @@ class NetworkBuildTests(unittest.TestCase):
     def setUp(self):
         FakeNet.instances = []
         FakeNet.fail_on_start = False
+        FakeNet.fail_on_configure_nodes = False
+        FakeNet.fail_on_add_link = False
+        FakeNet.fail_ip_assign_for = frozenset()
 
     def test_build_network_delegates_adhoc_batman_lifecycle_to_mininet_wifi(self):
         with patch.dict(sys.modules, _fake_modules()):
@@ -166,13 +185,67 @@ class NetworkBuildTests(unittest.TestCase):
         self.assertNotIn("batctl", commands)
         self.assertNotIn("ip route", commands)
         self.assertNotIn("ping", commands)
+        self.assertNotIn("iperf", commands)
+        # The only post-start operation is the minimal application IP assignment.
+        self.assertEqual(len(context.nodes["gcs"].commands), 1)
+        self.assertEqual(len(context.nodes["drone1"].commands), 1)
         self.assertIn("ip addr add 192.168.123.1/24 dev bat0", context.nodes["gcs"].commands[0])
         self.assertIn("ip addr add 192.168.123.2/24 dev bat0", context.nodes["drone1"].commands[0])
 
-    def test_build_network_stops_net_when_construction_fails(self):
+    def test_add_station_receives_container_name_and_readonly_binaries_volume(self):
+        config = _config()
+        with patch.dict(sys.modules, _fake_modules()):
+            build_network(config)
+
+        net = FakeNet.instances[0]
+        station_names = [station.name for station, _ in net.stations]
+        self.assertEqual(station_names, ["gcs0", "dr1"])
+
+        expected_volume = (
+            f"{config['binaries']['host_directory']}:{config['binaries']['container_directory']}:ro"
+        )
+        for _, kwargs in net.stations:
+            self.assertIs(kwargs["cls"], FakeDockerSta)
+            self.assertEqual(kwargs["volumes"], [expected_volume])
+        self.assertTrue(expected_volume.endswith(":ro"))
+
+    def test_configure_nodes_runs_before_add_link(self):
+        with patch.dict(sys.modules, _fake_modules()):
+            build_network(_config())
+
+        net = FakeNet.instances[0]
+        self.assertEqual(net.call_order[0], "configureNodes")
+        first_add_link_index = net.call_order.index("addLink")
+        self.assertGreater(first_add_link_index, net.call_order.index("configureNodes"))
+
+    def test_build_network_stops_net_when_start_fails(self):
         FakeNet.fail_on_start = True
         with patch.dict(sys.modules, _fake_modules()):
             with self.assertRaises(RuntimeError):
+                build_network(_config())
+
+        self.assertEqual(FakeNet.instances[0].stop_calls, 1)
+
+    def test_build_network_stops_net_when_configure_nodes_fails(self):
+        FakeNet.fail_on_configure_nodes = True
+        with patch.dict(sys.modules, _fake_modules()):
+            with self.assertRaises(RuntimeError):
+                build_network(_config())
+
+        self.assertEqual(FakeNet.instances[0].stop_calls, 1)
+
+    def test_build_network_stops_net_when_add_link_fails(self):
+        FakeNet.fail_on_add_link = True
+        with patch.dict(sys.modules, _fake_modules()):
+            with self.assertRaises(RuntimeError):
+                build_network(_config())
+
+        self.assertEqual(FakeNet.instances[0].stop_calls, 1)
+
+    def test_build_network_stops_net_when_ip_assignment_fails(self):
+        FakeNet.fail_ip_assign_for = frozenset({"gcs0"})
+        with patch.dict(sys.modules, _fake_modules()):
+            with self.assertRaisesRegex(RuntimeError, r"gcs0"):
                 build_network(_config())
 
         self.assertEqual(FakeNet.instances[0].stop_calls, 1)
@@ -183,14 +256,58 @@ class AssignApplicationIpTests(unittest.TestCase):
         node = FakeStation("gcs0")
         _assign_application_ip(node, "bat0", "192.168.123.1/24")
 
-        self.assertEqual(
-            node.commands,
-            [
-                "ip link set dev bat0 up && "
-                "ip addr flush dev bat0 && "
-                "ip addr add 192.168.123.1/24 dev bat0"
-            ],
-        )
+        self.assertEqual(len(node.commands), 1)
+        command = node.commands[0]
+        self.assertIn("ip link set dev bat0 up", command)
+        self.assertIn("ip addr flush dev bat0", command)
+        self.assertIn("ip addr add 192.168.123.1/24 dev bat0", command)
+        self.assertNotIn("ip route", command)
+        self.assertNotIn("ping", command)
+        self.assertNotIn("batctl", command)
+
+    def test_assign_application_ip_raises_useful_error_on_failure(self):
+        node = FakeStation("dr1", fail_ip_assign=True)
+
+        with self.assertRaisesRegex(RuntimeError, r"bat0.*dr1"):
+            _assign_application_ip(node, "bat0", "192.168.123.2/24")
+
+
+class NetworkContextTests(unittest.TestCase):
+    def test_stop_delegates_to_net_and_is_idempotent(self):
+        net = FakeNet()
+        context = build_network.__globals__["NetworkContext"](net, {})
+
+        context.stop()
+        context.stop()
+
+        self.assertEqual(net.stop_calls, 2)
+
+    def test_stop_is_safe_when_net_raises(self):
+        net = FakeNet()
+
+        class RaisingNet:
+            def stop(self):
+                raise RuntimeError("already stopped")
+
+        context = build_network.__globals__["NetworkContext"](RaisingNet(), {})
+        context.stop()  # must not raise
+
+    def test_stop_is_safe_when_net_is_none(self):
+        context = build_network.__globals__["NetworkContext"](None, {})
+        context.stop()  # must not raise
+
+
+class CleanupMininetTests(unittest.TestCase):
+    def test_cleanup_mininet_invokes_mn_dash_c_without_raising(self):
+        from scripts.testbed.network import cleanup_mininet
+
+        with patch("scripts.testbed.network.subprocess.run") as run_mock:
+            cleanup_mininet()
+
+        run_mock.assert_called_once()
+        args, kwargs = run_mock.call_args
+        self.assertEqual(args[0], ["mn", "-c"])
+        self.assertFalse(kwargs.get("check", False))
 
 
 if __name__ == "__main__":
