@@ -11,8 +11,6 @@ from testbed.metrics import start_capture, write_outputs
 from testbed.network import build_network, cleanup_mininet
 from testbed.runner import execute_protocol
 
-DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5.0
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the MVP Demo-1 testbed experiment.")
@@ -33,9 +31,6 @@ def main() -> int:
     config = None
     phase = "load_config"
     network_attempted = False
-
-    protocol_result = {"status": "failed", "duration_seconds": 0.0, "failures": []}
-    capture_result = {"started": False, "packet_count": 0}
 
     print(f"Executing: {Path(__file__).resolve()}", file=sys.stderr)
 
@@ -75,7 +70,6 @@ def main() -> int:
         return 2
 
     except Exception as exc:
-        protocol_result.setdefault("failures", []).append(str(exc))
         print(
             f"execution error during {phase}: {type(exc).__name__}: {exc}",
             file=sys.stderr,
@@ -86,12 +80,9 @@ def main() -> int:
     finally:
         if capture is not None:
             try:
-                timeout = DEFAULT_SHUTDOWN_TIMEOUT_SECONDS
-                if config is not None:
-                    timeout = config["experiment"].get(
-                        "shutdown_timeout_seconds", DEFAULT_SHUTDOWN_TIMEOUT_SECONDS
-                    )
-                capture.stop(timeout)
+                # A capture only exists when load_config() already succeeded, so
+                # the normalized shutdown timeout is always available here.
+                capture.stop(config["experiment"]["shutdown_timeout_seconds"])
             except Exception as cleanup_error:
                 print(f"warning: could not stop capture: {cleanup_error}", file=sys.stderr)
 
