@@ -137,7 +137,7 @@ class BinaryTests(unittest.TestCase):
 
         with patch.object(self.sender.time, "time_ns", side_effect=[100, 200, 300]), patch.object(
             self.sender.time, "sleep", return_value=None
-        ):
+        ), contextlib.redirect_stdout(io.StringIO()):
             sent = self.sender.tx(fake, "127.0.0.1", 5000, 3)
 
         self.assertEqual(sent, 3)
