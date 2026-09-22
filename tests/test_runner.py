@@ -88,7 +88,9 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["sender"]["exit_code"], 0)
         self.assertEqual(result["receivers"][0]["exit_code"], 0)
-        self.assertIn("--destination", nodes["drone1"].commands[0])
+        sender_command = nodes["drone1"].commands[0]
+        self.assertIn("--destination", sender_command)
+        self.assertNotIn("--mode", sender_command)
         self.assertTrue(nodes["gcs"].processes[0].terminated)
 
 
