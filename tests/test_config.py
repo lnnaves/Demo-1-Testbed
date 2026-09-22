@@ -62,10 +62,11 @@ class ConfigTests(unittest.TestCase):
         config.write_text(config_text, encoding="utf-8")
         return tmp, root, config
 
-    def assert_rejected(self, config_text):
+    def assert_rejected(self, config_text, match=None):
         tmp, root, config = self.make_root(config_text=config_text)
         with tmp:
-            with self.assertRaises(ConfigError):
+            context = self.assertRaisesRegex(ConfigError, match) if match else self.assertRaises(ConfigError)
+            with context:
                 load_config(config, root=root)
 
     def test_valid_unicast_config_defaults_and_paths(self):
@@ -102,6 +103,9 @@ class ConfigTests(unittest.TestCase):
         )
         self.assert_rejected(config_text)
 
+    def test_unknown_protocol_mode_is_rejected(self):
+        self.assert_rejected(CONFIG.replace("mode: unicast", "mode: multicast"), "protocol.mode")
+
     def test_duplicate_receivers_are_rejected(self):
         self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: [gcs, gcs]"))
 
@@ -120,6 +124,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_container_name_without_digit_is_rejected(self):
         # Mininet-WiFi derives node numbering with findall(r"\d+", name)[0],
+        # so station names without digits fail internally with IndexError.
         self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs"))
 
     def test_container_name_long_interface_is_rejected(self):
@@ -157,11 +162,17 @@ class ConfigTests(unittest.TestCase):
         self.assert_rejected(CONFIG.replace("count: 3", "count: 0"))
 
     def test_invalid_ip_or_yaml_errors_are_config_errors(self):
-        self.assert_rejected(CONFIG.replace("subnet: 192.168.123.0/24", "subnet: not-a-subnet"))
-        self.assert_rejected(CONFIG.replace("ip: 192.168.123.1/24", "ip: not-an-ip"))
+        self.assert_rejected(
+            CONFIG.replace("subnet: 192.168.123.0/24", "subnet: not-a-subnet"),
+            "wireless.subnet is invalid",
+        )
+        self.assert_rejected(
+            CONFIG.replace("ip: 192.168.123.1/24", "ip: not-an-ip"),
+            r"nodes\[0\]\.ip is invalid",
+        )
         tmp, root, config = self.make_root(config_text="experiment: [")
         with tmp:
-            with self.assertRaises(ConfigError):
+            with self.assertRaisesRegex(ConfigError, "invalid YAML"):
                 load_config(config, root=root)
 
     def test_rejects_missing_executable_binary(self):
