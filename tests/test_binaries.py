@@ -54,7 +54,6 @@ class BinaryTests(unittest.TestCase):
     def setUp(self):
         self.sender = load_binary("sender")
         self.receiver = load_binary("receiver")
-        self.receiver.running = True
 
     def run_main(self, module, argv):
         stdout = io.StringIO()
@@ -195,6 +194,25 @@ class BinaryTests(unittest.TestCase):
         self.assertIn("Receiver stopped after 0 packets", stdout)
         self.assertEqual(stderr, "")
 
+    def test_receiver_main_reinitializes_stop_flag_before_rx(self):
+        fake = FakeSocket()
+        self.receiver.running = False
+
+        def assert_running(_sock):
+            self.assertTrue(self.receiver.running)
+            return 0
+
+        with patch.object(self.receiver.socket, "socket", return_value=fake), patch.object(
+            self.receiver, "rx", side_effect=assert_running
+        ):
+            code, _stdout, stderr = self.run_main(
+                self.receiver,
+                ["receiver", "--address", "127.0.0.1", "--port", "5001"],
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+
     def test_rx_counts_only_datagrams_received(self):
         fake = FakeSocket()
         messages = [(b"one", ("127.0.0.1", 1000)), (b"two", ("127.0.0.1", 1000))]
@@ -203,7 +221,7 @@ class BinaryTests(unittest.TestCase):
             if messages:
                 return messages.pop(0)
             self.receiver.running = False
-            raise self.receiver.socket.timeout()
+            raise TimeoutError()
 
         fake.recvfrom = recvfrom
         with contextlib.redirect_stdout(io.StringIO()):
@@ -217,7 +235,7 @@ class BinaryTests(unittest.TestCase):
 
         def recvfrom(_size):
             self.receiver.running = False
-            raise self.receiver.socket.timeout()
+            raise TimeoutError()
 
         fake.recvfrom = recvfrom
         received = self.receiver.rx(fake)
