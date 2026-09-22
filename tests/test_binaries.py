@@ -1,6 +1,7 @@
 import contextlib
 import importlib.util
 import io
+import itertools
 import os
 import stat
 import sys
@@ -53,6 +54,7 @@ class BinaryTests(unittest.TestCase):
     def setUp(self):
         self.sender = load_binary("sender")
         self.receiver = load_binary("receiver")
+        self.receiver.running = True
 
     def run_main(self, module, argv):
         stdout = io.StringIO()
@@ -135,7 +137,7 @@ class BinaryTests(unittest.TestCase):
     def test_tx_sends_exactly_count_messages_with_sequence_and_timestamp(self):
         fake = FakeSocket()
 
-        with patch.object(self.sender.time, "time_ns", side_effect=[100, 200, 300]), patch.object(
+        with patch.object(self.sender.time, "time_ns", side_effect=itertools.count(100)), patch.object(
             self.sender.time, "sleep", return_value=None
         ), contextlib.redirect_stdout(io.StringIO()):
             sent = self.sender.tx(fake, "127.0.0.1", 5000, 3)
@@ -194,7 +196,6 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(stderr, "")
 
     def test_rx_counts_only_datagrams_received(self):
-        self.receiver.running = True
         fake = FakeSocket()
         messages = [(b"one", ("127.0.0.1", 1000)), (b"two", ("127.0.0.1", 1000))]
 
@@ -212,7 +213,6 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(fake.timeout, 0.5)
 
     def test_receiver_timeout_does_not_increment_count(self):
-        self.receiver.running = True
         fake = FakeSocket()
 
         def recvfrom(_size):
@@ -225,7 +225,6 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(received, 0)
 
     def test_receiver_stop_flag_allows_controlled_exit_without_traffic(self):
-        self.receiver.running = True
         self.receiver.stop(None, None)
         fake = FakeSocket()
         fake.recvfrom = Mock()
