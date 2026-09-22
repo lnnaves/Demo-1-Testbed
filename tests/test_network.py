@@ -3,7 +3,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from scripts.testbed.network import _assign_application_ip, build_network
+from scripts.testbed.network import _IP_ASSIGN_OK, _assign_application_ip, build_network
 
 
 class FakeStation:
@@ -16,8 +16,8 @@ class FakeStation:
         self.commands.append(command)
         if self.fail_ip_assign:
             return "RTNETLINK answers: Operation not permitted"
-        if "&& echo " in command:
-            return command.rsplit("echo ", 1)[-1] + "\n"
+        if _IP_ASSIGN_OK in command:
+            return f"{_IP_ASSIGN_OK}\n"
         return ""
 
 
