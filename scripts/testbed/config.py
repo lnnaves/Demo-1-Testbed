@@ -83,8 +83,11 @@ def load_config(path: str | Path | None = None, root: str | Path | None = None) 
     if not config_path.is_file():
         raise ConfigError(f"configuration file not found: {config_path}")
 
-    with config_path.open("r", encoding="utf-8") as config_file:
-        raw = yaml.safe_load(config_file) or {}
+    try:
+        with config_path.open("r", encoding="utf-8") as config_file:
+            raw = yaml.safe_load(config_file) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"invalid YAML in {config_path}: {exc}") from None
 
     data = _require_mapping(raw, "config")
     return normalize_config(data, project_root, config_path)
@@ -124,26 +127,45 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     count = _positive_int(protocol.get("count"), "protocol.count")
     sender = _require_string(protocol.get("sender"), "protocol.sender")
     receivers = protocol.get("receivers")
-    if not isinstance(receivers, list) or not receivers:
-        raise ConfigError("protocol.receivers must be a non-empty list")
+    if not isinstance(receivers, list):
+        raise ConfigError("protocol.receivers must be a list")
     receivers = [_require_string(item, "protocol.receivers[]") for item in receivers]
+    if mode == "unicast" and len(receivers) != 1:
+        raise ConfigError("protocol.receivers must contain exactly one receiver in unicast mode")
+    if mode == "broadcast" and not receivers:
+        raise ConfigError("protocol.receivers must contain at least one receiver in broadcast mode")
+    if sender in receivers:
+        raise ConfigError("protocol.sender cannot also be listed in protocol.receivers")
+    if len(receivers) != len(set(receivers)):
+        raise ConfigError("protocol.receivers must not contain duplicates")
 
-    subnet = ipaddress.ip_network(_require_string(wireless.get("subnet"), "wireless.subnet"), strict=False)
-    broadcast_ip = _require_string(wireless.get("broadcast_ip", str(subnet.broadcast_address)), "wireless.broadcast_ip")
-    ipaddress.ip_address(broadcast_ip)
+    try:
+        subnet = ipaddress.ip_network(_require_string(wireless.get("subnet"), "wireless.subnet"), strict=False)
+    except ValueError as exc:
+        raise ConfigError(f"wireless.subnet is invalid: {exc}") from None
+
+    try:
+        broadcast_ip = ipaddress.ip_address(
+            _require_string(wireless.get("broadcast_ip", str(subnet.broadcast_address)), "wireless.broadcast_ip")
+        )
+    except ValueError as exc:
+        raise ConfigError(f"wireless.broadcast_ip is invalid: {exc}") from None
+    if broadcast_ip not in subnet:
+        raise ConfigError("wireless.broadcast_ip must belong to wireless.subnet")
+    if broadcast_ip != subnet.broadcast_address:
+        raise ConfigError("wireless.broadcast_ip must match the broadcast address derived from wireless.subnet")
 
     normalized_wireless = {
         "ssid": _require_string(wireless.get("ssid", "meshNet"), "wireless.ssid"),
         "mode": _require_string(wireless.get("mode", "g"), "wireless.mode"),
         "channel": _positive_int(wireless.get("channel", 5), "wireless.channel"),
-        "bssid": _require_string(wireless.get("bssid", "02:11:22:33:44:55"), "wireless.bssid"),
         "ht_cap": _require_string(wireless.get("ht_cap", "HT40+"), "wireless.ht_cap"),
         "noise_threshold_dbm": float(_require_number(wireless.get("noise_threshold_dbm", -91), "wireless.noise_threshold_dbm")),
         "fading_coefficient": float(_require_number(wireless.get("fading_coefficient", 3), "wireless.fading_coefficient")),
         "propagation_model": _require_string(wireless.get("propagation_model", "logDistance"), "wireless.propagation_model"),
         "propagation_exponent": float(_require_number(wireless.get("propagation_exponent", 3.5), "wireless.propagation_exponent")),
         "subnet": str(subnet),
-        "broadcast_ip": broadcast_ip,
+        "broadcast_ip": str(broadcast_ip),
         "interface": _require_string(wireless.get("interface", "bat0"), "wireless.interface"),
     }
 
@@ -153,6 +175,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
 
     normalized_nodes: dict[str, dict[str, Any]] = {}
     container_names: dict[str, str] = {}
+    node_ips: dict[str, str] = {}
     for index, node_data in enumerate(nodes):
         node = _require_mapping(node_data, f"nodes[{index}]")
         name = _require_string(node.get("id"), f"nodes[{index}].id")
@@ -186,9 +209,21 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             )
 
         ip = _require_string(node.get("ip"), f"nodes[{index}].ip")
-        interface = ipaddress.ip_interface(ip)
+        try:
+            interface = ipaddress.ip_interface(ip)
+        except ValueError as exc:
+            raise ConfigError(f"nodes[{index}].ip is invalid: {exc}") from None
         if interface.ip not in subnet:
             raise ConfigError(f"nodes[{index}].ip is outside wireless.subnet")
+        if interface.ip in {subnet.network_address, subnet.broadcast_address}:
+            raise ConfigError(f"nodes[{index}].ip cannot be the network or broadcast address")
+        ip_address = str(interface.ip)
+        if ip_address in node_ips:
+            raise ConfigError(
+                f"duplicate node IP address: {ip_address} "
+                f"(nodes[{index}] and node {node_ips[ip_address]!r})"
+            )
+        node_ips[ip_address] = name
 
         position = node.get("position")
         if not isinstance(position, list) or len(position) != 3:
