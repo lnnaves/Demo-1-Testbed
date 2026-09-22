@@ -88,14 +88,28 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
     return NetworkContext(net, nodes)
 
 
+_IP_ASSIGN_OK = "__IP_ASSIGN_OK__"
+
+
 def _assign_application_ip(node: Any, interface: str, ip_cidr: str) -> None:
+    # node.cmd() only returns the shell output, not an exit code, so success is
+    # detected via a trailing sentinel that only appears if every command in
+    # the chain succeeded.
     quoted_interface = shlex.quote(interface)
     quoted_ip = shlex.quote(ip_cidr)
-    node.cmd(
+    output = node.cmd(
         f"ip link set dev {quoted_interface} up && "
         f"ip addr flush dev {quoted_interface} && "
-        f"ip addr add {quoted_ip} dev {quoted_interface}"
+        f"ip addr add {quoted_ip} dev {quoted_interface} && "
+        f"echo {_IP_ASSIGN_OK}"
     )
+    non_blank_lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+    if not non_blank_lines or non_blank_lines[-1] != _IP_ASSIGN_OK:
+        node_name = getattr(node, "name", "<unknown>")
+        raise RuntimeError(
+            f"failed to assign application IP {ip_cidr} to {interface} on node "
+            f"{node_name!r}: {(output or '').strip()!r}"
+        )
 
 
 def cleanup_mininet() -> None:
