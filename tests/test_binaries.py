@@ -134,6 +134,14 @@ class BinaryTests(unittest.TestCase):
         )
         self.assertEqual(fake.sent[0][1], ("192.168.123.255", 5000))
 
+    def test_sender_rejects_mode_argument(self):
+        with patch.object(sys, "argv", self.sender_argv() + ["--mode", "broadcast"]), \
+                contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "2") as context:
+                self.sender.main()
+
+        self.assertEqual(context.exception.code, 2)
+
     def test_tx_sends_exactly_count_messages_with_sequence_and_timestamp(self):
         fake = FakeSocket()
 

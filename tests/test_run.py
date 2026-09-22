@@ -4,11 +4,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 SCRIPTS_DIR = str(Path(__file__).resolve().parents[1] / "scripts")
-if SCRIPTS_DIR not in sys.path:
+_added_scripts_dir = SCRIPTS_DIR not in sys.path
+if _added_scripts_dir:
     sys.path.insert(0, SCRIPTS_DIR)
 
-import run  # noqa: E402  (scripts/run.py imports modules relative to scripts/)
-from testbed.config import ConfigError  # noqa: E402
+try:
+    import run  # noqa: E402  (scripts/run.py imports modules relative to scripts/)
+    from testbed.config import ConfigError  # noqa: E402
+finally:
+    if _added_scripts_dir:
+        sys.path.remove(SCRIPTS_DIR)
 
 
 def _config():

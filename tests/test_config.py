@@ -161,6 +161,16 @@ class ConfigTests(unittest.TestCase):
         self.assert_rejected(CONFIG.replace("port: 5000", "port: 65536", 1))
         self.assert_rejected(CONFIG.replace("count: 3", "count: 0", 1))
 
+    def test_rejects_invalid_structure_and_missing_required_fields(self):
+        self.assert_rejected("- invalid", "config must be a mapping")
+        self.assert_rejected(
+            "experiment:\n  id: exp\nprotocol: []\nwireless: {}\noutput: {}\nnodes: []\n",
+            "protocol must be a mapping",
+        )
+        self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: gcs", 1), "protocol.receivers must be a list")
+        self.assert_rejected(CONFIG.replace("  port: 5000\n", "", 1), "protocol.port must be a positive integer")
+        self.assert_rejected(CONFIG.replace("  count: 3\n", "", 1), "protocol.count must be a positive integer")
+
     def test_invalid_ip_or_yaml_errors_are_config_errors(self):
         self.assert_rejected(
             CONFIG.replace("subnet: 192.168.123.0/24", "subnet: not-a-subnet", 1),
