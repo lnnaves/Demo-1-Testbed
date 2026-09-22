@@ -32,6 +32,7 @@ def main() -> int:
     capture = None
     config = None
     phase = "load_config"
+    network_attempted = False
 
     protocol_result = {"status": "failed", "duration_seconds": 0.0, "failures": []}
     capture_result = {"started": False, "packet_count": 0}
@@ -42,6 +43,7 @@ def main() -> int:
         config = load_config(args.config)
 
         phase = "build_network"
+        network_attempted = True
         network = build_network(config)
 
         phase = "start_capture"
@@ -99,10 +101,11 @@ def main() -> int:
             except Exception as cleanup_error:
                 print(f"warning: could not stop network: {cleanup_error}", file=sys.stderr)
 
-        try:
-            cleanup_mininet()
-        except Exception as cleanup_error:
-            print(f"warning: Mininet cleanup failed: {cleanup_error}", file=sys.stderr)
+        if network_attempted:
+            try:
+                cleanup_mininet()
+            except Exception as cleanup_error:
+                print(f"warning: Mininet cleanup failed: {cleanup_error}", file=sys.stderr)
 
 
 if __name__ == "__main__":
