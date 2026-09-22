@@ -3,6 +3,7 @@ import importlib.util
 import io
 import itertools
 import os
+import signal
 import socket
 import stat
 import sys
@@ -58,6 +59,13 @@ class BinaryTests(unittest.TestCase):
     def setUp(self):
         self.sender = load_binary("sender")
         self.receiver = load_binary("receiver")
+        signal_handlers = {
+            signal.SIGINT: signal.getsignal(signal.SIGINT),
+            signal.SIGTERM: signal.getsignal(signal.SIGTERM),
+        }
+        self.addCleanup(
+            lambda: [signal.signal(sig, handler) for sig, handler in signal_handlers.items()]
+        )
 
     def run_main(self, module, argv):
         stdout = io.StringIO()

@@ -26,6 +26,7 @@ class FakeNet:
     fail_on_start = False
     fail_on_configure_nodes = False
     fail_on_add_link = False
+    fail_on_stop = False
     fail_ip_assign_for = frozenset()
 
     def __init__(self, **kwargs):
@@ -67,6 +68,8 @@ class FakeNet:
 
     def stop(self):
         self.stop_calls += 1
+        if FakeNet.fail_on_stop:
+            raise RuntimeError("stop failed")
 
 
 class FakeDockerSta:
@@ -153,6 +156,7 @@ class NetworkBuildTests(unittest.TestCase):
         FakeNet.fail_on_start = False
         FakeNet.fail_on_configure_nodes = False
         FakeNet.fail_on_add_link = False
+        FakeNet.fail_on_stop = False
         FakeNet.fail_ip_assign_for = frozenset()
 
     def test_build_network_delegates_adhoc_batman_lifecycle_to_mininet_wifi(self):
@@ -222,6 +226,15 @@ class NetworkBuildTests(unittest.TestCase):
         FakeNet.fail_on_start = True
         with patch.dict(sys.modules, _fake_modules()):
             with self.assertRaises(RuntimeError):
+                build_network(_config())
+
+        self.assertEqual(FakeNet.instances[0].stop_calls, 1)
+
+    def test_build_network_preserves_error_when_cleanup_also_fails(self):
+        FakeNet.fail_on_start = True
+        FakeNet.fail_on_stop = True
+        with patch.dict(sys.modules, _fake_modules()):
+            with self.assertRaisesRegex(RuntimeError, "start failed"):
                 build_network(_config())
 
         self.assertEqual(FakeNet.instances[0].stop_calls, 1)

@@ -96,6 +96,30 @@ class MetricsTests(unittest.TestCase):
                        return_value=MagicMock(returncode=1, stdout="", stderr="bad pcap")):
                 self.assertIn("bad pcap", analyze_pcap(str(path), 5000)["error"])
 
+    def test_analyze_pcap_rejects_non_numeric_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "capture.pcap"
+            path.write_bytes(b"pcap")
+            with patch("scripts.testbed.metrics.subprocess.run",
+                       return_value=MagicMock(returncode=0, stdout="not-a-timestamp udp\n", stderr="")):
+                result = analyze_pcap(str(path), 5000)
+
+        self.assertFalse(result["valid"])
+        self.assertIn("numeric timestamps", result["error"])
+
+    def test_stop_reports_capture_not_started_or_unexpected_exit(self):
+        not_started = Capture(MagicMock(), "sender", "bat0", 5000, "/tmp/none.pcap").stop()
+        process = MagicMock()
+        process.poll.return_value = 1
+        process.communicate.return_value = (b"", b"tcpdump error")
+        capture = Capture(MagicMock(), "sender", "bat0", 5000, "/tmp/none.pcap")
+        capture.process, capture.started_at, capture._pcap_file = process, 1.0, MagicMock()
+        with patch("scripts.testbed.metrics.analyze_pcap", return_value={"valid": True, "packet_count": 0}):
+            unexpected_exit = capture.stop()
+
+        self.assertEqual(not_started["error"], "capture was not started")
+        self.assertIn("exited unexpectedly", unexpected_exit["error"])
+
     def test_csv_uses_observed_interval_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "metrics.csv"

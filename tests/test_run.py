@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -21,6 +23,16 @@ def _config():
 
 
 class RunMainTests(unittest.TestCase):
+    def setUp(self):
+        self.stdout = io.StringIO()
+        self._stdout_redirect = contextlib.redirect_stdout(self.stdout)
+        self._stdout_redirect.__enter__()
+        self.addCleanup(self._stdout_redirect.__exit__, None, None, None)
+        self.stderr = io.StringIO()
+        self._stderr_redirect = contextlib.redirect_stderr(self.stderr)
+        self._stderr_redirect.__enter__()
+        self.addCleanup(self._stderr_redirect.__exit__, None, None, None)
+
     def test_reports_phase_and_traceback_on_unexpected_error(self):
         network = MagicMock()
         network.nodes = {}
@@ -168,6 +180,18 @@ class RunMainTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         mock_cleanup_mininet.assert_called_once()
+
+    def test_mininet_cleanup_error_is_only_a_warning(self):
+        with patch("sys.argv", ["run.py"]), \
+              patch("run.load_config", return_value=_config()), \
+              patch("run.build_network", side_effect=RuntimeError("network boom")), \
+              patch("run.cleanup_mininet", side_effect=RuntimeError("cleanup boom")), \
+              patch("sys.stderr") as mock_stderr:
+            exit_code = run.main()
+
+        self.assertEqual(exit_code, 1)
+        printed = "".join(c.args[0] for c in mock_stderr.write.call_args_list if c.args)
+        self.assertIn("warning: Mininet cleanup failed", printed)
 
     def test_exception_in_build_network_does_not_leak_capture(self):
         with patch("sys.argv", ["run.py"]), \
