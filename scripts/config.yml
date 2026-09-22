@@ -16,7 +16,6 @@ wireless:
   ssid: meshNet
   mode: g
   channel: 5
-  bssid: 02:11:22:33:44:55
   ht_cap: HT40+
   noise_threshold_dbm: -91
   fading_coefficient: 3
