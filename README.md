@@ -73,5 +73,5 @@ Testes unitários não dependem de rede real:
 
 ```bash
 python3 -m unittest discover -s tests
-python3 -m py_compile scripts/run.py scripts/testbed/*.py
+python3 -m py_compile scripts/run.py scripts/validate_scenarios.py scripts/testbed/*.py tests/*.py bin/sender bin/receiver
 ```
