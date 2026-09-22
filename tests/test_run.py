@@ -71,6 +71,25 @@ class RunMainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         network.stop.assert_called_once()
 
+    def test_lists_warnings_for_inconclusive_result(self):
+        network = MagicMock()
+        network.nodes = {}
+        capture = MagicMock()
+        capture.stop.return_value = {"started": True, "packet_count": 0}
+        with patch("sys.argv", ["run.py"]), \
+             patch("run.load_config", return_value={"experiment": {"shutdown_timeout_seconds": 1.0}}), \
+             patch("run.build_network", return_value=network), \
+             patch("run.start_capture", return_value=capture), \
+             patch("run.execute_protocol", return_value={"status": "success", "failures": []}), \
+             patch("run.write_outputs", return_value={"status": "inconclusive", "failures": [],
+                                                       "warnings": ["no traffic observed"]}), \
+             patch("run.cleanup_mininet"), \
+             patch("sys.stderr") as mock_stderr:
+            exit_code = run.main()
+        self.assertEqual(exit_code, 1)
+        printed = "".join(call.args[0] for call in mock_stderr.write.call_args_list if call.args)
+        self.assertIn("no traffic observed", printed)
+
 
 if __name__ == "__main__":
     unittest.main()
