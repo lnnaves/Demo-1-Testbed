@@ -366,8 +366,9 @@ class StopReceiversTests(unittest.TestCase):
     def test_stop_receivers_flags_spontaneous_exit(self):
         from scripts.testbed.runner import ProcessRecord
 
-        process = FakeProcess(stdout="", stderr="died", returncode=1)
-        process.returncode = 1  # already dead before cleanup runs
+        # poll_sequence makes the process report as already dead (code 1)
+        # before cleanup runs, simulating a spontaneous exit.
+        process = FakeProcess(stdout="", stderr="died", returncode=1, poll_sequence=[1])
         record = ProcessRecord("receiver", "gcs", ["receiver"], process, started_at=0.0)
 
         failures = stop_receivers([record], timeout=1.0)
