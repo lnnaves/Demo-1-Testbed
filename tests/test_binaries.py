@@ -3,6 +3,7 @@ import importlib.util
 import io
 import itertools
 import os
+import signal
 import socket
 import stat
 import sys
@@ -58,6 +59,13 @@ class BinaryTests(unittest.TestCase):
     def setUp(self):
         self.sender = load_binary("sender")
         self.receiver = load_binary("receiver")
+        signal_handlers = {
+            signal.SIGINT: signal.getsignal(signal.SIGINT),
+            signal.SIGTERM: signal.getsignal(signal.SIGTERM),
+        }
+        self.addCleanup(
+            lambda: [signal.signal(sig, handler) for sig, handler in signal_handlers.items()]
+        )
 
     def run_main(self, module, argv):
         stdout = io.StringIO()
@@ -133,6 +141,14 @@ class BinaryTests(unittest.TestCase):
             fake.options,
         )
         self.assertEqual(fake.sent[0][1], ("192.168.123.255", 5000))
+
+    def test_sender_rejects_mode_argument(self):
+        with patch.object(sys, "argv", self.sender_argv() + ["--mode", "broadcast"]), \
+                contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "2") as context:
+                self.sender.main()
+
+        self.assertEqual(context.exception.code, 2)
 
     def test_tx_sends_exactly_count_messages_with_sequence_and_timestamp(self):
         fake = FakeSocket()

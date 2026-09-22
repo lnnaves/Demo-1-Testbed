@@ -377,6 +377,18 @@ class StopReceiversTests(unittest.TestCase):
         self.assertIn("gcs", failures[0])
         self.assertFalse(process.terminated)
 
+    def test_stop_receivers_kills_after_shutdown_timeout(self):
+        from scripts.testbed.runner import ProcessRecord
+
+        process = FakeProcess(returncode=0, communicate_effects=["timeout"])
+        record = ProcessRecord("receiver", "gcs", ["receiver"], process, started_at=0.0)
+
+        failures = stop_receivers([record], timeout=1.0)
+
+        self.assertEqual(failures, [])
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+
 
 if __name__ == "__main__":
     unittest.main()
