@@ -122,15 +122,15 @@ class BinaryTests(unittest.TestCase):
                     ],
                 )
 
-            self.assertEqual(code, 0)
-            self.assertIn("Transmission completed", stdout)
-            self.assertEqual(stderr, "")
-            broadcast_options = [
-                option
-                for option in fake.options
-                if option == (self.sender.socket.SOL_SOCKET, self.sender.socket.SO_BROADCAST, 1)
-            ]
-            self.assertEqual(bool(broadcast_options), expect_broadcast)
+                self.assertEqual(code, 0)
+                self.assertIn("Transmission completed", stdout)
+                self.assertEqual(stderr, "")
+                broadcast_options = [
+                    option
+                    for option in fake.options
+                    if option == (self.sender.socket.SOL_SOCKET, self.sender.socket.SO_BROADCAST, 1)
+                ]
+                self.assertEqual(bool(broadcast_options), expect_broadcast)
 
     def test_tx_sends_exactly_count_messages_with_sequence_and_timestamp(self):
         fake = FakeSocket()
