@@ -118,10 +118,12 @@ class ConfigTests(unittest.TestCase):
     def test_duplicate_container_names_are_rejected(self):
         self.assert_rejected(CONFIG.replace("container_name: dr1", "container_name: gcs0"))
 
-    def test_container_name_without_digit_or_long_interface_is_rejected(self):
+    def test_container_name_without_digit_is_rejected(self):
         # Mininet-WiFi derives node numbering with findall(r"\d+", name)[0],
-        # and Linux limits the generated "<container_name>-wlan0" to 15 chars.
         self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs"))
+
+    def test_container_name_long_interface_is_rejected(self):
+        # Linux limits the generated "<container_name>-wlan0" to 15 chars.
         self.assert_rejected(CONFIG.replace("container_name: gcs0", "container_name: gcs0123456"))
 
     def test_duplicate_node_ip_is_rejected(self):

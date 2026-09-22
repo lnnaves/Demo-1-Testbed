@@ -130,14 +130,14 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     if not isinstance(receivers, list):
         raise ConfigError("protocol.receivers must be a list")
     receivers = [_require_string(item, "protocol.receivers[]") for item in receivers]
-    if mode == "unicast" and len(receivers) != 1:
-        raise ConfigError("protocol.receivers must contain exactly one receiver in unicast mode")
-    if mode == "broadcast" and not receivers:
-        raise ConfigError("protocol.receivers must contain at least one receiver in broadcast mode")
-    if sender in receivers:
-        raise ConfigError("protocol.sender cannot also be listed in protocol.receivers")
+    if not receivers:
+        raise ConfigError("protocol.receivers must contain at least one receiver")
     if len(receivers) != len(set(receivers)):
         raise ConfigError("protocol.receivers must not contain duplicates")
+    if sender in receivers:
+        raise ConfigError("protocol.sender cannot also be listed in protocol.receivers")
+    if mode == "unicast" and len(receivers) != 1:
+        raise ConfigError("protocol.receivers must contain exactly one receiver in unicast mode")
 
     try:
         subnet = ipaddress.ip_network(_require_string(wireless.get("subnet"), "wireless.subnet"), strict=False)
@@ -215,9 +215,12 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         except ValueError as exc:
             raise ConfigError(f"nodes[{index}].ip is invalid: {exc}") from exc
         if interface.ip not in subnet:
-            raise ConfigError(f"nodes[{index}].ip is outside wireless.subnet")
+            raise ConfigError(f"nodes[{index}].ip for node {name!r} ({interface.ip}) is outside wireless.subnet")
         if interface.ip in {subnet.network_address, subnet.broadcast_address}:
-            raise ConfigError(f"nodes[{index}].ip cannot be the network or broadcast address")
+            raise ConfigError(
+                f"nodes[{index}].ip for node {name!r} ({interface.ip}) "
+                "cannot be the network or broadcast address"
+            )
         ip_address = str(interface.ip)
         if ip_address in node_ips:
             raise ConfigError(
