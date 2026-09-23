@@ -127,7 +127,6 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     if port > 65535:
         raise ConfigError("protocol.port must be between 1 and 65535")
 
-    count = _positive_int(protocol.get("count"), "protocol.count")
     sender = _require_string(protocol.get("sender"), "protocol.sender")
     receivers = protocol.get("receivers")
     if not isinstance(receivers, list):
@@ -283,7 +282,6 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "protocol": {
             "mode": mode,
             "port": port,
-            "count": count,
             "sender": sender,
             "receivers": receivers,
         },

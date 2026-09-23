@@ -15,7 +15,6 @@ def base_config(mode="unicast", receivers=None):
         "protocol": {
             "mode": mode,
             "port": 5000,
-            "count": 2,
             "sender": "drone1",
             "receivers": receivers or ["gcs"],
         },
@@ -126,6 +125,7 @@ class LifecycleTests(unittest.TestCase):
         sender_command = nodes["drone1"].commands[0]
         self.assertIn("--destination", sender_command)
         self.assertNotIn("--mode", sender_command)
+        self.assertNotIn("--count", sender_command)
         self.assertTrue(nodes["gcs"].processes[0].terminated)
 
     def test_receiver_started_before_sender(self):
@@ -152,7 +152,7 @@ class LifecycleTests(unittest.TestCase):
             ["/opt/protocol/bin/receiver", "--address", "192.168.123.1", "--port", "5000"],
         )
 
-    def test_sender_receives_destination_port_count_and_no_mode(self):
+    def test_sender_receives_only_destination_and_port(self):
         config = base_config()
         nodes = {name: FakeNode(name) for name in ("gcs", "drone1")}
         with patch("scripts.testbed.runner.time.sleep", return_value=None):
@@ -161,9 +161,10 @@ class LifecycleTests(unittest.TestCase):
         sender_command = nodes["drone1"].commands[0]
         self.assertEqual(
             sender_command,
-            ["/opt/protocol/bin/sender", "--destination", "192.168.123.1", "--port", "5000", "--count", "2"],
+            ["/opt/protocol/bin/sender", "--destination", "192.168.123.1", "--port", "5000"],
         )
         self.assertNotIn("--mode", sender_command)
+        self.assertNotIn("--count", sender_command)
 
     def test_broadcast_starts_all_receivers(self):
         config = base_config(mode="broadcast", receivers=["gcs", "drone2"])
