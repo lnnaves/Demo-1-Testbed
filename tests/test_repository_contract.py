@@ -1,4 +1,5 @@
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -46,13 +47,37 @@ class RepositoryContractTests(unittest.TestCase):
 
         self.assertEqual(found, ["config.yml"])
 
-    def test_sender_binary_has_no_mode_argument(self):
+    def test_sender_binary_accepts_only_destination_and_port(self):
         text = (PROJECT_ROOT / "bin" / "sender").read_text(encoding="utf-8")
 
         self.assertNotIn('"--mode"', text)
+        self.assertNotIn('"--count"', text)
         self.assertIn('"--destination"', text)
         self.assertIn('"--port"', text)
-        self.assertIn('"--count"', text)
+
+    def test_receiver_binary_accepts_address_and_port(self):
+        text = (PROJECT_ROOT / "bin" / "receiver").read_text(encoding="utf-8")
+
+        self.assertIn('"--address"', text)
+        self.assertIn('"--port"', text)
+
+    def test_no_reference_protocol_semantics_is_required_by_the_platform(self):
+        for path, text in _sources().items():
+            with self.subTest(path=path.name):
+                self.assertNotIn("protocol.count", text)
+                self.assertNotIn("timestamp_ns=", text)
+                self.assertNotIn("Receiver stopped after", text)
+
+    def test_container_image_is_neutral_and_has_python_and_network_runtime(self):
+        dockerfile = (PROJECT_ROOT / "dockerfiles" / "Dockerfile.drone").read_text(encoding="utf-8")
+
+        self.assertNotIn("ardupilot", dockerfile.lower())
+        self.assertNotIn("perf", dockerfile)
+        self.assertNotIn("linux-tools", dockerfile)
+        for package in ("python3", "iproute2", "batctl", "tcpdump", "iw"):
+            self.assertIn(package, dockerfile)
+        self.assertIn("WORKDIR /workspace", dockerfile)
+        self.assertIn('CMD ["/bin/bash"]', dockerfile)
 
     def test_metrics_report_intervals_and_never_end_to_end_latency(self):
         text = (PROJECT_ROOT / "scripts" / "testbed" / "metrics.py").read_text(encoding="utf-8")
@@ -61,12 +86,23 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertNotIn("latency_", text)
 
     def test_generated_artifacts_are_not_versioned(self):
+        """Local results under logs/ are legitimate; only .gitkeep is tracked."""
         ignored = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("logs/*", ignored)
-        self.assertEqual(
-            sorted(p.name for p in (PROJECT_ROOT / "logs").iterdir() if p.name != ".gitkeep"),
-            [],
+        self.assertIn("!logs/.gitkeep", ignored)
+
+        result = subprocess.run(
+            ["git", "ls-files", "logs"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        if result.returncode != 0:
+            self.skipTest("git is not available to inspect tracked files")
+
+        tracked = sorted(line.strip() for line in result.stdout.splitlines() if line.strip())
+        self.assertEqual(tracked, ["logs/.gitkeep"])
 
     def test_build_script_matches_the_documented_dockerfile_and_image(self):
         script = (PROJECT_ROOT / "scripts" / "build-docker.sh").read_text(encoding="utf-8")

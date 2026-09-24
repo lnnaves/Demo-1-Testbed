@@ -7,7 +7,6 @@ experiment:
 protocol:
   mode: unicast
   port: 5000
-  count: 100
   sender: drone1
   receivers:
     - gcs

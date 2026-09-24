@@ -13,7 +13,6 @@ experiment:
 protocol:
   mode: unicast
   port: 5000
-  count: 3
   sender: drone1
   receivers: [gcs]
 wireless:
@@ -81,6 +80,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["wireless"]["broadcast_ip"], "192.168.123.255")
         self.assertEqual(loaded["binaries"]["sender"]["container"], "/opt/protocol/bin/sender")
         self.assertTrue(loaded["output"]["summary"].endswith(os.path.join("logs", "summary.json")))
+
+    def test_protocol_has_no_packet_count_contract(self):
+        tmp, root, config = self.make_root()
+        with tmp:
+            loaded = load_config(config, root=root)
+
+        self.assertEqual(
+            sorted(loaded["protocol"]),
+            ["mode", "port", "receivers", "sender"],
+        )
 
     def test_valid_broadcast_config_with_multiple_receivers(self):
         config_text = CONFIG.replace("mode: unicast", "mode: broadcast", 1).replace(
@@ -156,10 +165,9 @@ class ConfigTests(unittest.TestCase):
         self.assert_rejected(CONFIG.replace("position: [0, 0, 0]", "position: [0, 0]", 1))
         self.assert_rejected(CONFIG.replace("position: [0, 0, 0]", "position: [0, nope, 0]", 1))
 
-    def test_port_and_count_limits_are_enforced(self):
+    def test_port_limits_are_enforced(self):
         self.assert_rejected(CONFIG.replace("port: 5000", "port: 0", 1))
         self.assert_rejected(CONFIG.replace("port: 5000", "port: 65536", 1))
-        self.assert_rejected(CONFIG.replace("count: 3", "count: 0", 1))
 
     def test_rejects_invalid_structure_and_missing_required_fields(self):
         self.assert_rejected("- invalid", "config must be a mapping")
@@ -169,7 +177,6 @@ class ConfigTests(unittest.TestCase):
         )
         self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: gcs", 1), "protocol.receivers must be a list")
         self.assert_rejected(CONFIG.replace("  port: 5000\n", "", 1), "protocol.port must be a positive integer")
-        self.assert_rejected(CONFIG.replace("  count: 3\n", "", 1), "protocol.count must be a positive integer")
 
     def test_rejects_invalid_required_values(self):
         self.assert_rejected(CONFIG.replace("id: exp-test", "id: invalid id", 1), "experiment.id")

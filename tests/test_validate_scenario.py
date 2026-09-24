@@ -22,15 +22,14 @@ def _config(mode="unicast", receivers=None):
         "protocol": {
             "mode": mode,
             "port": 5101,
-            "count": 5,
             "sender": "drone1",
             "receivers": receivers,
         },
         "wireless": {"broadcast_ip": "192.168.123.255"},
         "nodes": {
-            "gcs": {"address": "192.168.123.1", "container_name": "gcs0"},
-            "drone1": {"address": "192.168.123.2", "container_name": "dr1"},
-            "drone2": {"address": "192.168.123.3", "container_name": "dr2"},
+            "gcs": {"address": "192.168.123.1", "container_name": "gcs0", "image": "drone:latest"},
+            "drone1": {"address": "192.168.123.2", "container_name": "dr1", "image": "drone:latest"},
+            "drone2": {"address": "192.168.123.3", "container_name": "dr2", "image": "drone:latest"},
         },
         "output": {},
     }
@@ -47,6 +46,7 @@ def _summary(tmp, mode="unicast", receivers=None):
         Path(path).write_bytes(b"x")
     destination = "192.168.123.255" if mode == "broadcast" else "192.168.123.1"
     return {
+        "mode": mode,
         "status": "success",
         "process_status": "success",
         "capture_status": "valid",
@@ -54,14 +54,22 @@ def _summary(tmp, mode="unicast", receivers=None):
         "sender": {
             "node": "drone1",
             "exit_code": 0,
-            "command": ["/opt/protocol/bin/sender", "--destination", destination, "--port", "5101", "--count", "5"],
-            "stdout": "\n".join(f"TX {index}: ok" for index in range(1, 6)),
+            "command": ["/opt/protocol/bin/sender", "--destination", destination, "--port", "5101"],
+            "stdout": "anything the implementation decides to print",
         },
         "receivers": [
-            {"node": receiver, "exit_code": 0, "stdout": "Receiver stopped after 5 packets"}
+            {
+                "node": receiver,
+                "exit_code": 0,
+                "command": ["/opt/protocol/bin/receiver", "--address", "192.168.123.1", "--port", "5101"],
+                "stdout": "anything the implementation decides to print",
+            }
             for receiver in receivers
         ],
+        "capture": {"started": True, "valid": True, "error": None},
         "metrics": {"packet_count": 5},
+        "failures": [],
+        "warnings": [],
         "outputs": outputs,
     }
 
@@ -104,34 +112,112 @@ class ValidateScenarioTests(unittest.TestCase):
 
         self.assertEqual(errors, [])
 
-    def test_validate_summary_rejects_wrong_count_extra_receiver_and_mode_flag(self):
+    def test_validate_summary_ignores_protocol_stdout_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            summary["sender"]["stdout"] = ""
+            summary["receivers"][0]["stdout"] = "opaque protocol diagnostics"
+            errors = validate_scenario.validate_summary(_config(), summary)
+
+        self.assertEqual(errors, [])
+
+    def test_validate_summary_rejects_unexpected_receivers_and_forbidden_sender_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             summary = _summary(tmp, receivers=["gcs", "drone2"])
-            summary["sender"]["command"].append("--mode")
-            summary["receivers"][0]["stdout"] = "Receiver stopped after 4 packets"
+            summary["sender"]["command"].extend(["--mode", "unicast", "--count", "5"])
             errors = validate_scenario.validate_summary(_config(), summary)
 
         self.assertTrue(any("receivers are" in error for error in errors))
-        self.assertTrue(any("counted 4" in error for error in errors))
         self.assertTrue(any("--mode" in error for error in errors))
+        self.assertTrue(any("--count" in error for error in errors))
 
-    def test_validate_summary_rejects_broadcast_missing_a_configured_receiver(self):
+    def test_validate_summary_rejects_sender_from_another_node(self):
         with tempfile.TemporaryDirectory() as tmp:
-            config = _config(mode="broadcast", receivers=["gcs", "drone2"])
-            summary = _summary(tmp, mode="broadcast", receivers=["gcs"])
-            errors = validate_scenario.validate_summary(config, summary)
+            summary = _summary(tmp)
+            summary["sender"]["node"] = "drone2"
+            errors = validate_scenario.validate_summary(_config(), summary)
 
-        self.assertTrue(any("receivers are" in error for error in errors))
+        self.assertTrue(any("sender node is" in error for error in errors))
 
-    def test_check_prerequisites_never_toggles_mode_or_reads_a_second_config(self):
+    def test_validate_summary_rejects_receiver_command_without_address_and_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            summary["receivers"][0]["command"] = ["/opt/protocol/bin/receiver"]
+            errors = validate_scenario.validate_summary(_config(), summary)
+
+        self.assertTrue(any("--address" in error for error in errors))
+
+    def test_validate_summary_rejects_missing_status_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            del summary["process_status"]
+            del summary["warnings"]
+            errors = validate_scenario.validate_summary(_config(), summary)
+
+        self.assertTrue(any("'process_status'" in error for error in errors))
+        self.assertTrue(any("'warnings'" in error for error in errors))
+
+    def test_validate_summary_rejects_capture_that_was_not_started(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            summary["capture"] = {"started": False, "valid": False, "error": "capture was not started"}
+            errors = validate_scenario.validate_summary(_config(), summary)
+
+        self.assertTrue(any("capture was not started" in error for error in errors))
+
+    def test_validate_summary_rejects_missing_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            Path(summary["outputs"]["csv"]).unlink()
+            errors = validate_scenario.validate_summary(_config(), summary)
+
+        self.assertTrue(any("output does not exist" in error for error in errors))
+
+    def test_validator_never_parses_protocol_stdout(self):
+        source = (Path(validate_scenario.__file__)).read_text(encoding="utf-8")
+
+        self.assertNotIn("TX ", source)
+        self.assertNotIn("RX ", source)
+        self.assertNotIn("re.compile", source)
+        self.assertNotIn("import re", source)
+
+    def test_check_prerequisites_uses_the_images_configured_for_the_nodes(self):
+        config = _config()
+        config["nodes"]["drone1"]["image"] = "custom-protocol:latest"
+        config["output"] = {}
         with patch("validate_scenario._command_exists", return_value=True), \
              patch("validate_scenario._docker_is_functional", return_value=True), \
              patch("validate_scenario._imports_are_available", return_value=True), \
              patch("validate_scenario._batman_adv_is_available", return_value=True), \
-             patch("validate_scenario._docker_image_exists", return_value=True):
-            missing = validate_scenario.check_prerequisites()
+             patch("validate_scenario._docker_image_exists", return_value=True) as image_mock:
+            missing = validate_scenario.check_prerequisites(config)
 
         self.assertEqual(missing, [])
+        inspected = sorted(call.args[0] for call in image_mock.call_args_list)
+        self.assertEqual(inspected, ["custom-protocol:latest", "drone:latest"])
+
+    def test_check_cleanup_reports_containernet_named_residual_containers(self):
+        config = _config()
+
+        def fake_containers(filters):
+            if filters == ["name=^/mn.dr1$"]:
+                return ["mn.dr1"]
+            return []
+
+        with patch("validate_scenario._command_exists", return_value=True), \
+             patch("validate_scenario._docker_containers", side_effect=fake_containers):
+            errors = validate_scenario.check_cleanup(config)
+
+        self.assertEqual(errors, ["container still present after cleanup: mn.dr1"])
+
+    def test_check_cleanup_ignores_unrelated_containers(self):
+        config = _config()
+
+        with patch("validate_scenario._command_exists", return_value=True), \
+             patch("validate_scenario._docker_containers", return_value=["mn.unrelated9"]):
+            errors = validate_scenario.check_cleanup(config)
+
+        self.assertEqual(errors, [])
 
     def test_run_scenario_invokes_run_py_exactly_once_with_the_selected_config_path(self):
         config = _config(mode="unicast")

@@ -97,8 +97,6 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
                 destination,
                 "--port",
                 str(protocol["port"]),
-                "--count",
-                str(protocol["count"]),
             ]
             try:
                 sender_process = _spawn(sender_node, command)
