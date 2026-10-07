@@ -1,15 +1,17 @@
-# Contrato dos Binários
+# Contrato operacional dos executáveis
 
-O testbed executa exatamente dois pontos de entrada disponibilizados em `bin/`:
+O produto deste repositório é a **plataforma de execução de protocolos** no cenário emulado de drones. `bin/sender` e `bin/receiver` são apenas **modelos mínimos substituíveis**: existem para demonstrar como integrar um executável próprio e para permitir um smoke test da infraestrutura.
+
+O testbed **não define** payload, algoritmo, handshake, formato de log ou critério de sucesso do protocolo. O desenvolvedor substitui os dois executáveis pela sua implementação (por exemplo, futuramente PQ-EDHOC) e adiciona bibliotecas, certificados, chaves e dependências na imagem do container.
 
 ```text
 bin/sender
 bin/receiver
 ```
 
-O usuário define cenário, nós, IPs, porta, quantidade, sender e receivers somente em `scripts/config.yml`. O runner lê essa configuração e entrega os valores aos binários por argumentos. Os binários não leem o YAML e não possuem valores de rede fixos.
+O cenário, os nós, os IPs, a porta, o modo, o sender e os receivers são definidos somente em `scripts/config.yml`. O runner lê essa configuração e entrega os valores de rede por argumentos; os executáveis não leem o YAML e não têm valores de rede fixos.
 
-## Interface obrigatória de CLI e ciclo de vida
+## Interface mínima de CLI
 
 ### Receiver
 
@@ -17,64 +19,37 @@ O usuário define cenário, nós, IPs, porta, quantidade, sender e receivers som
 receiver --address <IP_LOCAL> --port <PORTA>
 ```
 
-Responsabilidades mínimas:
-
-1. validar os argumentos;
-2. abrir um socket UDP/IPv4;
-3. associar o socket ao IPv4 local e à porta recebidos;
-4. executar `rx(socket)`;
-5. permanecer recebendo até `SIGINT` ou `SIGTERM`;
-6. imprimir em stdout uma linha simples por datagrama recebido;
-7. no encerramento controlado, imprimir o total recebido e retornar `0`.
-
-`rx(socket)` conta somente datagramas efetivamente retornados por `recvfrom()`. Timeouts usados para permitir encerramento por sinal não contam como recebimento.
-
-O receiver não emite `READY`. Encerrar com `0`, inclusive após `SIGTERM` e com zero pacotes, significa somente encerramento controlado; não comprova que houve tráfego.
-
 ### Sender
 
 ```bash
-sender --destination <IP_DESTINO> --port <PORTA> --count <QUANTIDADE>
+sender --destination <IP_DESTINO> --port <PORTA>
 ```
 
-Responsabilidades mínimas:
+O sender **não recebe `--mode` nem `--count`**. O modo é escolhido em `config.yml` e o runner o converte no destino correto: o IP do receiver em Unicast ou o endereço de broadcast da sub-rede em Broadcast.
 
-1. validar os argumentos;
-2. abrir um socket UDP/IPv4;
-3. permitir envio para um endereço de broadcast com `SO_BROADCAST`;
-4. executar `tx(socket, destination, port, count)`;
-5. transmitir exatamente `count` datagramas;
-6. imprimir em stdout uma linha simples por envio;
-7. encerrar após concluir as chamadas locais de envio e retornar `0`.
+## Requisitos operacionais
 
-Unicast ou Broadcast **não faz parte do contrato do sender**. O modo é definido exclusivamente em `config.yml`. O runner converte essa escolha no destino correto: IP do receiver em Unicast ou endereço de broadcast da sub-rede em Broadcast.
-
-`SO_BROADCAST` apenas permite que o destino recebido seja um endereço de broadcast; ele não transforma destinos unicast em broadcast.
-
-O retorno `0` do sender significa somente que as chamadas locais de envio foram concluídas. Não comprova entrega ao receiver.
-
-## Payload dos binários de referência
-
-Os binários de referência incluídos neste repositório usam o payload textual:
-
-```text
-sequence=<N>;timestamp_ns=<TIMESTAMP>
-```
-
-`sequence` cresce a partir de `1` e `timestamp_ns` registra o instante local de transmissão em nanossegundos. Esse formato serve aos binários de referência e não obriga futuras implementações de protocolo, desde que respeitem a interface de CLI e o ciclo de vida.
+- os arquivos existem sob `bin/` e são executáveis;
+- executam sem interação humana e permanecem em foreground;
+- recebem os parâmetros de rede fornecidos pelo runner;
+- a própria implementação abre e gerencia seus sockets;
+- `stdout` é diagnóstico normal e `stderr` é erro;
+- o receiver responde a `SIGTERM`/`SIGINT` para encerramento controlado;
+- os executáveis não configuram containers, interfaces, IPs, BATMAN-adv, rotas, captura ou métricas.
 
 ## Códigos de saída
 
 | Código | Significado |
 |---:|---|
-| `0` | Sender concluiu as chamadas locais de envio, ou receiver encerrou de forma controlada |
-| `1` | Falha operacional ao abrir, configurar, associar, receber ou enviar pelo socket |
-| `2` | Argumentos inválidos, incluindo IPv4 inválido, porta fora de `1..65535` ou `count <= 0` |
+| `0` | Encerramento local normal do processo — **não** é sucesso semântico do protocolo |
+| diferente de `0` | Falha operacional |
 
-`argparse` pode encerrar diretamente com código `2` para argumentos ausentes ou tipos inválidos.
+`argparse` (ou equivalente) pode encerrar diretamente com código `2` para argumentos ausentes ou inválidos.
+
+## Limitação desta versão
+
+A plataforma executa executáveis com interface de **endereço/porta** e observa tráfego **UDP na porta configurada** na captura. O testbed não interpreta o conteúdo enviado nem as mensagens impressas pelos processos.
 
 ## Fronteira de responsabilidade
 
-Os binários não configuram rede, interfaces, IP, BATMAN-adv, rotas, captura ou métricas. Também não executam handshake, ACK, retransmissão, protocolo `READY`, múltiplas threads ou cálculo de resultados.
-
-O testbed monta `bin/` em `/opt/protocol/bin:ro`, inicia os processos, escolhe os endereços a partir de `config.yml`, captura stdout/stderr e coleta PCAP, CSV e JSON.
+O testbed monta `bin/` em `/opt/protocol/bin:ro`, inicia os processos (receivers antes do sender), escolhe os endereços a partir de `config.yml`, coleta stdout/stderr/exit code/duração e gera PCAP, CSV e JSON.

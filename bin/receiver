@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Minimal replaceable receiver model.
+
+This file is not a protocol. It only demonstrates the operational contract
+expected by the testbed: receive --address/--port, open its own socket, stay in
+foreground and exit cleanly on SIGTERM/SIGINT. Replace it with the real
+protocol executable; the testbed never interprets what is received or printed.
+"""
 
 import argparse
 import ipaddress
@@ -22,22 +29,14 @@ def parse_arguments():
 
 
 def rx(sock):
-    received = 0
+    """Consume datagrams until a termination signal arrives."""
     sock.settimeout(0.5)
 
     while running:
         try:
-            data, source = sock.recvfrom(65535)
-            received += 1
-            print(
-                f"RX {received}: {len(data)} bytes from "
-                f"{source[0]}:{source[1]}",
-                flush=True,
-            )
+            sock.recvfrom(65535)
         except socket.timeout:
             continue
-
-    return received
 
 
 def is_ipv4_address(value):
@@ -68,13 +67,10 @@ def main():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((args.address, args.port))
 
-            print(
-                f"Receiver listening on {args.address}:{args.port}",
-                flush=True,
-            )
+            print(f"Receiver bound to {args.address}:{args.port}", flush=True)
 
-            received = rx(sock)
-            print(f"Receiver stopped after {received} packets", flush=True)
+            rx(sock)
+            print("Receiver finished", flush=True)
 
         return 0
 
