@@ -11,20 +11,25 @@ from scripts.testbed.metrics import Capture, analyze_pcap, start_capture, write_
 
 class MetricsTests(unittest.TestCase):
     def test_start_capture_uses_sender_interface_and_udp_port_filter(self):
-        node = MagicMock()
+        node = MagicMock(pid=4242)
         config = {"protocol": {"sender": "sender", "port": 5000}, "wireless": {"interface": "bat0"},
                   "output": {"pcap": "/tmp/capture.pcap"}}
-        with patch("scripts.testbed.metrics.open", unittest.mock.mock_open()):
+        with patch("scripts.testbed.metrics.open", unittest.mock.mock_open()), patch(
+            "scripts.testbed.metrics.subprocess.Popen"
+        ) as popen:
             capture = start_capture(config, {"sender": node})
-        self.assertEqual(node.popen.call_args.args[0],
-                         ["tcpdump", "-i", "bat0", "-w", "-", "udp", "port", "5000"])
+        self.assertEqual(popen.call_args.args[0],
+                         ["nsenter", "-t", "4242", "-n",
+                          "tcpdump", "-i", "bat0", "-w", "-", "udp", "port", "5000"])
+        node.popen.assert_not_called()
         capture.stop = MagicMock()
 
     def test_start_failure_closes_pcap(self):
-        node = MagicMock()
-        node.popen.side_effect = OSError("no tcpdump")
+        node = MagicMock(pid=4242)
         mocked_open = unittest.mock.mock_open()
-        with patch("scripts.testbed.metrics.open", mocked_open):
+        with patch("scripts.testbed.metrics.open", mocked_open), patch(
+            "scripts.testbed.metrics.subprocess.Popen", side_effect=OSError("no tcpdump")
+        ):
             with self.assertRaises(OSError):
                 Capture(node, "sender", "bat0", 5000, "/tmp/capture.pcap").start()
         mocked_open.return_value.close.assert_called_once()

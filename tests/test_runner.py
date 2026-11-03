@@ -4,6 +4,22 @@ from unittest.mock import patch
 
 from scripts.testbed.runner import execute_protocol, select_destination, stop_receivers
 
+# The runner starts processes through network.container_popen (nsenter on the
+# real host). Here it is routed to the fake nodes' popen() so every test can
+# inspect the commands each node received.
+_container_popen_patch = patch(
+    "scripts.testbed.runner.container_popen",
+    side_effect=lambda node, command, **kwargs: node.popen(command, **kwargs),
+)
+
+
+def setUpModule():
+    _container_popen_patch.start()
+
+
+def tearDownModule():
+    _container_popen_patch.stop()
+
 
 def base_config(mode="unicast", receivers=None):
     return {
@@ -11,6 +27,7 @@ def base_config(mode="unicast", receivers=None):
             "duration_seconds": 5,
             "receiver_startup_seconds": 1.0,
             "shutdown_timeout_seconds": 1.0,
+            "drain_seconds": 0.0,
         },
         "protocol": {
             "mode": mode,
@@ -127,6 +144,23 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn("--mode", sender_command)
         self.assertNotIn("--count", sender_command)
         self.assertTrue(nodes["gcs"].processes[0].terminated)
+
+    def test_drain_waits_after_sender_before_stopping_receivers(self):
+        config = base_config()
+        config["experiment"]["drain_seconds"] = 2.5
+        nodes = {name: FakeNode(name) for name in ("gcs", "drone1")}
+        with patch("scripts.testbed.runner.time.sleep", return_value=None) as sleep:
+            execute_protocol(config, nodes)
+
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.0, 2.5])
+
+    def test_no_drain_sleep_when_drain_is_zero(self):
+        config = base_config()
+        nodes = {name: FakeNode(name) for name in ("gcs", "drone1")}
+        with patch("scripts.testbed.runner.time.sleep", return_value=None) as sleep:
+            execute_protocol(config, nodes)
+
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.0])
 
     def test_receiver_started_before_sender(self):
         config = base_config()

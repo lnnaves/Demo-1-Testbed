@@ -8,7 +8,7 @@ from pathlib import Path
 
 from testbed.config import ConfigError, load_config
 from testbed.metrics import start_capture, write_outputs
-from testbed.network import build_network, cleanup_mininet
+from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, wait_for_network
 from testbed.runner import execute_protocol
 
 
@@ -37,9 +37,16 @@ def main() -> int:
     try:
         config = load_config(args.config)
 
+        phase = "prepare_host"
+        cleanup_stale_environment(config)
+
         phase = "build_network"
         network_attempted = True
         network = build_network(config)
+
+        phase = "wait_network"
+        ready_after = wait_for_network(config, network.nodes)
+        print(f"Mesh ready after {ready_after:.1f}s", file=sys.stderr)
 
         phase = "start_capture"
         capture = start_capture(config, network.nodes)

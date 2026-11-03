@@ -32,6 +32,14 @@ class RunMainTests(unittest.TestCase):
         self._stderr_redirect = contextlib.redirect_stderr(self.stderr)
         self._stderr_redirect.__enter__()
         self.addCleanup(self._stderr_redirect.__exit__, None, None, None)
+        # Host preparation and mesh readiness need a real network; every test
+        # gets inert stand-ins and may inspect them.
+        stale_patch = patch("run.cleanup_stale_environment")
+        wait_patch = patch("run.wait_for_network", return_value=0.0)
+        self.mock_cleanup_stale = stale_patch.start()
+        self.mock_wait_for_network = wait_patch.start()
+        self.addCleanup(stale_patch.stop)
+        self.addCleanup(wait_patch.stop)
 
     def test_reports_phase_and_traceback_on_unexpected_error(self):
         network = MagicMock()
@@ -133,7 +141,9 @@ class RunMainTests(unittest.TestCase):
              patch("run.write_outputs", return_value={"status": "success", "failures": []}) as mock_write_outputs, \
              patch("run.cleanup_mininet"):
             manager.attach_mock(mock_load_config, "load_config")
+            manager.attach_mock(self.mock_cleanup_stale, "cleanup_stale_environment")
             manager.attach_mock(mock_build_network, "build_network")
+            manager.attach_mock(self.mock_wait_for_network, "wait_for_network")
             manager.attach_mock(mock_start_capture, "start_capture")
             manager.attach_mock(mock_execute, "execute_protocol")
             manager.attach_mock(capture.stop, "capture_stop")
@@ -144,7 +154,9 @@ class RunMainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         expected_order = [
             "load_config",
+            "cleanup_stale_environment",
             "build_network",
+            "wait_for_network",
             "start_capture",
             "execute_protocol",
             "capture_stop",
@@ -226,6 +238,27 @@ class RunMainTests(unittest.TestCase):
         network.stop.assert_called_once()
         printed = "".join(c.args[0] for c in mock_stderr.write.call_args_list if c.args)
         self.assertIn("execution error during execute_protocol", printed)
+
+    def test_network_not_ready_skips_capture_and_cleans_network(self):
+        network = MagicMock()
+        network.nodes = {}
+        self.mock_wait_for_network.side_effect = RuntimeError("network not ready: drone1 could not reach gcs")
+
+        with patch("sys.argv", ["run.py"]), \
+             patch("run.load_config", return_value=_config()), \
+             patch("run.build_network", return_value=network), \
+             patch("run.start_capture") as mock_start_capture, \
+             patch("run.cleanup_mininet") as mock_cleanup_mininet, \
+             patch("sys.stderr") as mock_stderr:
+            exit_code = run.main()
+
+        self.assertEqual(exit_code, 1)
+        mock_start_capture.assert_not_called()
+        network.stop.assert_called_once()
+        mock_cleanup_mininet.assert_called_once()
+        printed = "".join(c.args[0] for c in mock_stderr.write.call_args_list if c.args)
+        self.assertIn("execution error during wait_network", printed)
+        self.assertIn("network not ready", printed)
 
     def test_exception_during_capture_stop_still_cleans_up_network(self):
         network = MagicMock()
