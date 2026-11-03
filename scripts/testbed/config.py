@@ -46,6 +46,19 @@ def _positive_float(value: Any, path: str) -> float:
     return number
 
 
+def _non_negative_float(value: Any, path: str) -> float:
+    number = float(_require_number(value, path))
+    if number < 0:
+        raise ConfigError(f"{path} must not be negative")
+    return number
+
+
+def _require_bool(value: Any, path: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError(f"{path} must be true or false")
+    return value
+
+
 def _positive_int(value: Any, path: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"{path} must be a positive integer")
@@ -118,6 +131,14 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         experiment.get("shutdown_timeout_seconds", 5.0),
         "experiment.shutdown_timeout_seconds",
     )
+    network_ready_timeout_seconds = _positive_float(
+        experiment.get("network_ready_timeout_seconds", 30.0),
+        "experiment.network_ready_timeout_seconds",
+    )
+    drain_seconds = _non_negative_float(
+        experiment.get("drain_seconds", 1.0),
+        "experiment.drain_seconds",
+    )
 
     mode = _require_string(protocol.get("mode", "unicast"), "protocol.mode")
     if mode not in SUPPORTED_PROTOCOL_MODES:
@@ -172,6 +193,12 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "subnet": str(subnet),
         "broadcast_ip": str(broadcast_ip),
         "interface": _require_string(wireless.get("interface", "bat0"), "wireless.interface"),
+        "batman_bridge_loop_avoidance": _require_bool(
+            wireless.get("batman_bridge_loop_avoidance", False), "wireless.batman_bridge_loop_avoidance"
+        ),
+        "batman_orig_interval_ms": _positive_int(
+            wireless.get("batman_orig_interval_ms", 1000), "wireless.batman_orig_interval_ms"
+        ),
     }
 
     nodes = data.get("nodes")
@@ -278,6 +305,8 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "duration_seconds": duration_seconds,
             "receiver_startup_seconds": receiver_startup_seconds,
             "shutdown_timeout_seconds": shutdown_timeout_seconds,
+            "network_ready_timeout_seconds": network_ready_timeout_seconds,
+            "drain_seconds": drain_seconds,
         },
         "protocol": {
             "mode": mode,

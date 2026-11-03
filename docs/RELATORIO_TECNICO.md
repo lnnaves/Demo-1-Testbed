@@ -55,11 +55,13 @@ Cada invocação executa **um único modo**, o que estiver em `protocol.mode`.
 Blocos existentes hoje:
 
 - `experiment`: `id`, `duration_seconds`, `receiver_startup_seconds`,
-  `shutdown_timeout_seconds`;
+  `shutdown_timeout_seconds`, `network_ready_timeout_seconds` (padrão 30),
+  `drain_seconds` (padrão 1, aceita 0);
 - `protocol`: `mode` (`unicast` ou `broadcast`), `port`, `sender`, `receivers`;
 - `wireless`: `ssid`, `mode`, `channel`, `ht_cap`, `noise_threshold_dbm`,
   `fading_coefficient`, `propagation_model`, `propagation_exponent`, `subnet`,
-  `broadcast_ip`, `interface` (`bat0`);
+  `broadcast_ip`, `interface` (`bat0`), `batman_bridge_loop_avoidance`
+  (padrão `false`), `batman_orig_interval_ms` (padrão 1000);
 - `nodes`: lista com `id`, `container_name`, `ip`, `position`, `image`,
   `memory`, `txpower`, `range`;
 - `binaries`: `sender` e `receiver` (caminhos sob `bin/`);
@@ -97,12 +99,36 @@ Os links são `adhoc` com `proto="batman_adv"`, ou seja, o próprio Mininet-WiFi
 atribui os IPs de aplicação na interface `bat0` de cada nó, com verificação de
 sucesso por sentinela, já que `node.cmd()` não retorna código de saída.
 
+Logo após `net.start()`, cada nó recebe `batctl bl <0|1>` e `batctl it <ms>`.
+O Bridge Loop Avoidance vem desligado por padrão: ligado, ele descarta
+broadcasts (inclusive ARP) por ~30 s após o início enquanto procura outros
+gateways de backbone, o que atrasava a malha em ~28 s sem haver bridge no
+cenário. O intervalo de originator messages controla a rapidez com que o
+BATMAN-adv reage à mobilidade: com 1000 ms ele não trocou para a rota via
+relay antes de perder o enlace direto; com 200 ms trocou.
+
+Antes de montar a rede, o testbed executa `mn -c` e remove containers
+`mn.<container_name>` deixados por uma execução interrompida (o `mn -c` do
+Mininet-WiFi não remove containers Docker).
+
+Depois da atribuição de IPs, a fase `wait_network` espera a malha BATMAN-adv
+convergir: o sender faz `ping` para cada receiver, uma vez por segundo, até
+todos responderem ou até `network_ready_timeout_seconds`. Em caso de timeout a
+execução falha com `network not ready: <sender> could not reach <receiver>`.
+Quando a malha está pronta, o cache ARP (`ip neigh flush`) de todos os nós é
+limpo para que o protocolo não herde entradas criadas pela verificação.
+
 A limpeza chama `net.stop()` e, em seguida, `mn -c`.
 
 ## 6. Execução dos processos
 
 `runner.py`:
 
+0. todos os processos são iniciados com `nsenter` nos namespaces do container
+   (mount, UTS, IPC, rede), com a raiz e o ambiente do container. Não se usa o
+   `popen` do Containernet porque o `docker exec -t` junta stderr ao stdout e
+   não repassa sinais ao processo; com `nsenter`, `terminate()`/`kill()` chegam
+   ao próprio executável;
 1. inicia **todos os receivers** definidos (apenas um, em Unicast), sempre antes
    do sender, com o comando
    `receiver --address <IP_LOCAL> --port <PORTA>`;
@@ -113,7 +139,8 @@ A limpeza chama `net.stop()` e, em seguida, `mn -c`.
 4. inicia o sender com `sender --destination <IP> --port <PORTA>`;
 5. aplica timeout derivado de `duration_seconds`, com `terminate()` e depois
    `kill()` se necessário;
-6. encerra os receivers de forma controlada; término solicitado pelo runner não
+6. aguarda `drain_seconds` após o fim do sender, para as últimas mensagens em
+   trânsito chegarem, e então encerra os receivers de forma controlada; término solicitado pelo runner não
    é falha, saída espontânea é;
 7. coleta `command`, `exit_code`, `stdout`, `stderr` e `duration_seconds` de
    cada processo.
@@ -123,8 +150,11 @@ recebe `--mode` nem `--count`.
 
 ## 7. Captura e métricas
 
-`metrics.py` inicia `tcpdump -i <interface> -w - udp port <porta>` no nó sender
-antes de os processos começarem e grava diretamente o PCAP configurado. Na
+`metrics.py` inicia `tcpdump -i <interface> -w - udp port <porta>` no host,
+dentro do namespace de rede do nó sender (`nsenter -t <pid> -n`), antes de os
+processos começarem, e grava diretamente o PCAP configurado. O `popen` do
+Containernet não é usado porque o `docker exec -t` aloca um TTY que corrompe a
+saída binária e não repassa o `SIGINT` ao tcpdump. Na
 parada, envia `SIGINT` (com fallback `terminate`/`kill`) e reanalisa o arquivo
 com `tcpdump -tt -nn -r`.
 

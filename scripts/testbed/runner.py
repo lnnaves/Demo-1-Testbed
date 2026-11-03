@@ -5,6 +5,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .network import container_popen
+
 
 @dataclass
 class ProcessRecord:
@@ -48,7 +50,7 @@ def select_destination(config: dict[str, Any]) -> str:
 
 
 def _spawn(node: Any, command: list[str]) -> Any:
-    return node.popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return container_popen(node, command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
 def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str, Any]:
@@ -121,6 +123,11 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
 
                 if not timed_out and sender_record.exit_code != 0:
                     failures.append(f"sender exited with code {sender_record.exit_code}")
+
+                # Let the last messages in flight reach the receivers before
+                # they are stopped.
+                if experiment["drain_seconds"] > 0:
+                    time.sleep(experiment["drain_seconds"])
     finally:
         failures.extend(stop_receivers(receiver_records, experiment["shutdown_timeout_seconds"]))
 

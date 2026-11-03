@@ -100,7 +100,7 @@ def _output_problems(config: dict[str, Any] | None) -> list[str]:
 def check_prerequisites(config: dict[str, Any] | None = None) -> list[str]:
     """Check host prerequisites only; never elevate privileges or change the host."""
     missing: list[str] = []
-    for command in ("docker", "mn", "tcpdump", "wmediumd"):
+    for command in ("docker", "mn", "tcpdump", "wmediumd", "nsenter"):
         if not _command_exists(command):
             missing.append(f"required command not found in PATH: {command}")
     if not _docker_is_functional():

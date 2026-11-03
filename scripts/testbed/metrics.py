@@ -89,8 +89,15 @@ class Capture:
         Path(self.pcap_path).parent.mkdir(parents=True, exist_ok=True)
         self._pcap_file = open(self.pcap_path, "wb")
         try:
-            self.process = self.node.popen(
-                ["tcpdump", "-i", self.interface, "-w", "-", "udp", "port", str(self.port)],
+            # DockerSta.popen() runs through "docker exec -t", whose TTY mangles
+            # binary stdout and does not forward SIGINT to tcpdump. Running
+            # tcpdump on the host inside the container's network namespace
+            # keeps the PCAP stream intact and the process directly signalable.
+            self.process = subprocess.Popen(
+                [
+                    "nsenter", "-t", str(self.node.pid), "-n",
+                    "tcpdump", "-i", self.interface, "-w", "-", "udp", "port", str(self.port),
+                ],
                 stdout=self._pcap_file,
                 stderr=subprocess.PIPE,
             )

@@ -3,6 +3,8 @@ experiment:
   duration_seconds: 60
   receiver_startup_seconds: 1.0
   shutdown_timeout_seconds: 5.0
+  network_ready_timeout_seconds: 60.0
+  drain_seconds: 1.0
 
 protocol:
   mode: unicast
@@ -23,6 +25,12 @@ wireless:
   subnet: 192.168.123.0/24
   broadcast_ip: 192.168.123.255
   interface: bat0
+  # BATMAN-adv. Bridge Loop Avoidance only matters when bat0 is bridged to a
+  # LAN; enabled, it drops broadcasts (ARP included) for ~30 s after start.
+  batman_bridge_loop_avoidance: false
+  # Interval between originator messages. Lower values react faster to
+  # mobility (route changes) at the cost of more control traffic.
+  batman_orig_interval_ms: 1000
 
 nodes:
   - id: gcs
@@ -36,7 +44,7 @@ nodes:
   - id: drone1
     container_name: dr1
     ip: 192.168.123.2/24
-    position: [25, 0, 0]
+    position: [20, 0, 0]
     image: drone:latest
     memory: 512m
     txpower: 10
@@ -44,7 +52,7 @@ nodes:
   - id: drone2
     container_name: dr2
     ip: 192.168.123.3/24
-    position: [50, 0, 0]
+    position: [40, 0, 0]
     image: drone:latest
     memory: 512m
     txpower: 10

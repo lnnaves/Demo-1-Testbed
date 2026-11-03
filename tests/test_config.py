@@ -81,6 +81,45 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["binaries"]["sender"]["container"], "/opt/protocol/bin/sender")
         self.assertTrue(loaded["output"]["summary"].endswith(os.path.join("logs", "summary.json")))
 
+    def test_network_ready_timeout_and_drain_defaults(self):
+        tmp, root, config = self.make_root()
+        with tmp:
+            loaded = load_config(config, root=root)
+
+        self.assertEqual(loaded["experiment"]["network_ready_timeout_seconds"], 30.0)
+        self.assertEqual(loaded["experiment"]["drain_seconds"], 1.0)
+
+    def test_network_ready_timeout_and_drain_are_validated(self):
+        def with_experiment(extra):
+            return CONFIG.replace("duration_seconds: 2\n", f"duration_seconds: 2\n  {extra}\n", 1)
+
+        self.assert_rejected(with_experiment("network_ready_timeout_seconds: 0"), "network_ready_timeout_seconds")
+        self.assert_rejected(with_experiment("drain_seconds: -1"), "drain_seconds must not be negative")
+
+        tmp, root, config = self.make_root(with_experiment("drain_seconds: 0"))
+        with tmp:
+            self.assertEqual(load_config(config, root=root)["experiment"]["drain_seconds"], 0.0)
+
+    def test_batman_defaults_disable_bridge_loop_avoidance(self):
+        tmp, root, config = self.make_root()
+        with tmp:
+            loaded = load_config(config, root=root)
+
+        self.assertIs(loaded["wireless"]["batman_bridge_loop_avoidance"], False)
+        self.assertEqual(loaded["wireless"]["batman_orig_interval_ms"], 1000)
+
+    def test_batman_settings_are_validated(self):
+        def with_wireless(extra):
+            return CONFIG.replace("  subnet: 192.168.123.0/24\n", f"  subnet: 192.168.123.0/24\n  {extra}\n", 1)
+
+        self.assert_rejected(with_wireless("batman_bridge_loop_avoidance: 0"), "must be true or false")
+        self.assert_rejected(with_wireless("batman_orig_interval_ms: 0"), "batman_orig_interval_ms")
+        self.assert_rejected(with_wireless("batman_orig_interval_ms: 0.5"), "batman_orig_interval_ms")
+
+        tmp, root, config = self.make_root(with_wireless("batman_orig_interval_ms: 200"))
+        with tmp:
+            self.assertEqual(load_config(config, root=root)["wireless"]["batman_orig_interval_ms"], 200)
+
     def test_protocol_has_no_packet_count_contract(self):
         tmp, root, config = self.make_root()
         with tmp:
