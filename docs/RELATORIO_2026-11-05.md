@@ -185,7 +185,8 @@ logs/exp-01-unicast/2026-11-05_15-39-36/
 
 ## Pendências fora do plano
 
-1. Merge da branch `semana1-execucao-real` (semanas 1 e 2) na `main`.
+1. Enviar a semana 2 ao GitHub e abrir um PR para a `main`. A semana 1 já
+   foi mergeada pelo PR #20.
 2. O validador exige exit 0 dos receivers. Ajustar junto com a semana 6.
 3. `BIN_INTERFACE.md` e `CONTEXTO_AGENTE.md` desatualizados (semana 6).
 4. Em aberto (D8): encurtar a espera do ping para medir a malha em décimos.

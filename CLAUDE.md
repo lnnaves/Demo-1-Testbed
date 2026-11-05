@@ -117,8 +117,11 @@ fim-a-fim; entrega/perda; mobilidade.
 
 ## Estado atual (2026-11-05)
 
-- **Semana 1 concluída e commitada** na branch `semana1-execucao-real`
-  (ainda não mergeada na `main`, nada enviado ao GitHub). Suíte: 157 testes OK.
+- **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
+  `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
+- Semana 2 (commits de 05/11) na mesma branch `semana1-execucao-real`, após o
+  merge; falta push + novo PR. **Sempre rodar `git fetch` antes de afirmar o
+  estado do GitHub** (a cópia local de `origin/*` fica desatualizada).
 - Confirmado no host: unicast e broadcast em `success`; receivers encerram com
   "Receiver finished"; "Mesh ready after 10.1s".
 - `scripts/config.yml` versionado: unicast, drone1→gcs, posições 0/20/40,
@@ -159,7 +162,7 @@ fim-a-fim; entrega/perda; mobilidade.
   (registrar `ended_by`). Ajustar junto com a semana 6.
 - README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
   comportamento antigo em pontos (processos, BLA, fases novas).
-- Merge/PR da branch `semana1-execucao-real`.
+- Push + PR da semana 2 (branch `semana1-execucao-real`) para a `main`.
 
 ## Plano (marcar ao concluir; cada fase fecha com execução real confirmada)
 

@@ -21,8 +21,10 @@ inteiro, para economizar contexto.
    (contrato antigo); onde conflitarem, CLAUDE.md vence.
 
 3. ONDE PARAMOS: semanas 1 e 2 concluídas e confirmadas no host. Suíte com
-   187 testes OK. Tudo commitado na branch semana1-execucao-real (não
-   mergeada na main). Próximo: SEMANA 3, latência.
+   187 testes OK. Semana 1 já está na main (PR #20). Semana 2 está na
+   branch semana1-execucao-real; confira com "git fetch" e
+   "git status" se já foi enviada e se o PR dela já foi mergeado. Não afirme
+   o estado do GitHub sem "git fetch". Próximo: SEMANA 3, latência.
 
 4. PARA A SEMANA 3, leia só estes arquivos de código:
    - scripts/testbed/metrics.py (Capture, CaptureSet, analyze_pcap,
@@ -95,8 +97,8 @@ implementar.
 
 ## Variações
 
-- Para começar pelo merge da branch:
-  troque a última frase por "Antes da semana 3, me explique como fazer o
-  merge da branch semana1-execucao-real na main".
+- Para começar pelo PR da semana 2:
+  troque a última frase por "Antes da semana 3, confira se a semana 2 já
+  está na main e, se não estiver, me explique como abrir o PR".
 - Para só tirar dúvidas: troque a última frase por "Ainda não implemente
   nada; quero tirar dúvidas".
