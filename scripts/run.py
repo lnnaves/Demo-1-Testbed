@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import traceback
 from pathlib import Path
@@ -11,6 +12,7 @@ from testbed.metrics import start_capture, write_outputs
 from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, wait_for_network
 from testbed.rundir import DEFAULT_OUTPUT_DIR, prepare_run_directory
 from testbed.runner import execute_protocol
+from testbed.timing import Timeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,13 +31,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _write_timing(path: str, timeline: Timeline) -> None:
+    with open(path, "w", encoding="utf-8") as timing_file:
+        json.dump(timeline.to_dict(), timing_file, indent=2, ensure_ascii=False)
+        timing_file.write("\n")
+
+
 def main() -> int:
     args = parse_args()
 
     network = None
     capture = None
     config = None
-    phase = "load_config"
+    output = None
+    timeline = Timeline()
+    phase = timeline.start("load_config")
     network_attempted = False
 
     print(f"Executing: {Path(__file__).resolve()}", file=sys.stderr)
@@ -43,32 +53,32 @@ def main() -> int:
     try:
         config = load_config(args.config)
 
-        phase = "prepare_output"
+        phase = timeline.start("prepare_output")
         output = prepare_run_directory(config, args.output_dir)
         print(f"Run directory: {output['directory']}", file=sys.stderr)
 
-        phase = "prepare_host"
+        phase = timeline.start("prepare_host")
         cleanup_stale_environment(config)
 
-        phase = "build_network"
+        phase = timeline.start("build_network")
         network_attempted = True
         network = build_network(config)
 
-        phase = "wait_network"
+        phase = timeline.start("wait_network")
         ready_after = wait_for_network(config, network.nodes)
         print(f"Mesh ready after {ready_after:.1f}s", file=sys.stderr)
 
-        phase = "start_capture"
+        phase = timeline.start("start_capture")
         capture = start_capture(config, network.nodes)
 
-        phase = "execute_protocol"
+        phase = timeline.start("execute_protocol")
         protocol_result = execute_protocol(config, network.nodes)
 
-        phase = "stop_capture"
+        phase = timeline.start("stop_capture")
         capture_result = capture.stop(config["experiment"]["shutdown_timeout_seconds"])
         capture = None
 
-        phase = "write_outputs"
+        phase = timeline.start("write_outputs")
         summary = write_outputs(config, protocol_result, capture_result)
 
         if summary["status"] == "success":
@@ -83,10 +93,12 @@ def main() -> int:
         return 1
 
     except ConfigError as exc:
+        timeline.fail()
         print(f"configuration error: {exc}", file=sys.stderr)
         return 2
 
     except Exception as exc:
+        timeline.fail()
         print(
             f"execution error during {phase}: {type(exc).__name__}: {exc}",
             file=sys.stderr,
@@ -95,6 +107,7 @@ def main() -> int:
         return 1
 
     finally:
+        timeline.start("cleanup")
         if capture is not None:
             try:
                 # A capture only exists when load_config() already succeeded, so
@@ -114,6 +127,15 @@ def main() -> int:
                 cleanup_mininet()
             except Exception as cleanup_error:
                 print(f"warning: Mininet cleanup failed: {cleanup_error}", file=sys.stderr)
+
+        timeline.finish()
+        if output is not None:
+            # Written last, so it also covers cleanup and failed runs.
+            try:
+                _write_timing(output["timing"], timeline)
+            except Exception as timing_error:
+                print(f"warning: could not write timing: {timing_error}", file=sys.stderr)
+        print(f"Total time: {timeline.to_dict()['duration_seconds']:.1f}s", file=sys.stderr)
 
 
 if __name__ == "__main__":

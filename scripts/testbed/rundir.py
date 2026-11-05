@@ -14,6 +14,7 @@ RUN_FILES = {
     "pcap": "capture.pcap",
     "csv": "metrics.csv",
     "summary": "summary.json",
+    "timing": "timing.json",
 }
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 

@@ -161,7 +161,12 @@ logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
     capture.pcap    tráfego capturado no sender
     metrics.csv     métricas passivas observáveis da captura
     summary.json    resumo de processos, captura, métricas, falhas, warnings e caminhos
+    timing.json     início, fim e duração do experimento e de cada fase
 ```
+
+O `timing.json` é gravado por último, também quando a execução falha no meio.
+Os instantes estão em segundos Unix (`started_at`), a mesma base dos
+timestamps do PCAP, e também em hora local legível (`started_at_local`).
 
 O caminho da pasta é impresso no início (`Run directory: ...`). A pasta base
 `logs/` pode ser trocada na hora de rodar, sem editar o config:

@@ -208,6 +208,17 @@ que respostas lentas através da malha sejam aceitas.
 tempos por fase da semana 2. A alternativa recusada era manter como está e
 anotar a precisão de ~2 s.
 
+**Correção (05/11, ao implementar).** A precisão melhora menos do que foi dito
+na discussão ("décimos de segundo"). A pausa entre tentativas caiu de 1 s para
+0,2 s, mas enquanto a malha não está pronta cada ping ainda espera até 1 s pela
+resposta. Cada tentativa que falha custa, então, ~1,2 s, e a precisão passa de
+~2 s para **~1,2 s**, não para décimos. Para chegar a décimos seria preciso
+também encurtar a espera de cada ping (ex.: `-W 0.3`): uma resposta mais
+lenta que isso contaria como tentativa falha, mas isso só atrasaria a
+detecção, nunca encerraria a execução. Fica como decisão em aberto.
+
+**Onde.** `_READY_POLL_SECONDS = 0.2` em `scripts/testbed/network.py`.
+
 ---
 
 ## D9. Uma pasta por execução; campos desconhecidos no config viram erro (05/11/2026)
@@ -257,3 +268,46 @@ nó rodaria na posição errada sem ninguém saber.
 **Implicação.** Uma execução que falha antes do fim deixa a pasta só com o
 `config.yml` (e o que tiver sido gerado até a falha). Isso é intencional: fica
 o registro de que a tentativa existiu e com qual config.
+
+---
+
+## D10. Tempos do experimento, das fases e dos processos (05/11/2026)
+
+**Contexto: quando surgiu.** Segundo item da semana 2. O tempo de execução é
+uma das prioridades do projeto. Até aqui só existiam o `Mesh ready after` na
+tela e a duração de cada processo no `summary.json`. Não se sabia quanto
+levavam a montagem da rede, a limpeza ou a execução inteira.
+
+**Decisão.**
+- Cada execução grava um `timing.json` na sua pasta, com o início, o fim e a
+  duração do **experimento inteiro** e de **cada fase**: `load_config`,
+  `prepare_output`, `prepare_host`, `build_network`, `wait_network`,
+  `start_capture`, `execute_protocol`, `stop_capture`, `write_outputs` e
+  `cleanup`.
+- Cada fase tem `status` `ok` ou `failed`. Numa execução que falha, a fase que
+  falhou fica marcada e as seguintes (exceto `cleanup`) não aparecem.
+- Cada processo (sender e receivers) ganhou `started_at` e `ended_at` no
+  `summary.json`, além da `duration_seconds` que já existia.
+- A tela mostra `Total time: X s` no fim.
+
+**Por que dois relógios.**
+- **Durações** usam um relógio monotônico, que só avança. Se o relógio do
+  sistema for ajustado (NTP) durante a execução, as durações não são afetadas.
+- **Instantes** (`started_at`, `ended_at`) usam o relógio do sistema, em
+  segundos desde 01/01/1970 (Unix epoch). É a mesma base dos timestamps do
+  PCAP, o que vai permitir alinhar fases, processos e pacotes na semana 3.
+  Para leitura humana há também `started_at_local` e `ended_at_local`, no
+  formato `2026-11-05T15:30:12.345-03:00`.
+
+**Por que um arquivo separado (`timing.json`) e não dentro do `summary.json`.**
+- O `summary.json` é escrito na fase `write_outputs`, antes da limpeza. O
+  `timing.json` é escrito por último, então inclui a limpeza e o total real.
+- Ele é gravado mesmo quando a execução falha no meio (ex.: `network not
+  ready`), caso em que não existe `summary.json`. Fica registrado onde e
+  depois de quanto tempo a execução falhou.
+- A exceção é um erro no config: nesse caso a pasta da execução nem chega a
+  ser criada.
+
+**Onde.** `scripts/testbed/timing.py` (classe `Timeline`), `scripts/run.py`
+(uma chamada `timeline.start(...)` por fase; `timing.json` gravado no
+`finally`), `scripts/testbed/runner.py` (instantes de cada processo).

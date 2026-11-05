@@ -126,7 +126,8 @@ Antes de montar a rede, o testbed executa `mn -c` e remove containers
 Mininet-WiFi não remove containers Docker).
 
 Depois da atribuição de IPs, a fase `wait_network` espera a malha BATMAN-adv
-convergir: o sender faz `ping` para cada receiver, uma vez por segundo, até
+convergir: o sender faz `ping` para cada receiver (espera de até 1 s pela resposta e
+pausa de 0,2 s entre tentativas), até
 todos responderem ou até `network_ready_timeout_seconds`. Em caso de timeout a
 execução falha com `network not ready: <sender> could not reach <receiver>`.
 Quando a malha está pronta, o cache ARP (`ip neigh flush`) de todos os nós é
@@ -197,6 +198,11 @@ que falha antes do fim deixa ao menos o `config.yml`.
 - **`config.yml`**: cópia exata do config usado;
 - **`capture.pcap`**: tráfego capturado no nó sender;
 - **`metrics.csv`**: uma linha com as métricas acima;
+- **`timing.json`**: início, fim, duração e status do experimento e de cada
+  fase (de `load_config` a `cleanup`), gravado por último, inclusive em
+  execuções que falham. Instantes em segundos Unix (mesma base do PCAP) e em
+  hora local; durações pelo relógio monotônico. Os processos no
+  `summary.json` também trazem `started_at`/`ended_at`;
 - **`summary.json`**: `experiment`, `mode`, `status`, `process_status`,
   `capture_status`, `traffic_status`, `sender`, `receivers`, `capture`,
   `metrics`, `failures`, `warnings`, `outputs`.

@@ -96,6 +96,9 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
 _IP_ASSIGN_OK = "__IP_ASSIGN_OK__"
 _PING_OK = "__PING_OK__"
 _BATMAN_OK = "__BATMAN_OK__"
+# Pause between readiness attempts (D8 in docs/DECISOES.md). Each ping still
+# waits up to 1 s for a reply, so slow replies across the mesh are accepted.
+_READY_POLL_SECONDS = 0.2
 _DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
@@ -171,7 +174,7 @@ def wait_for_network(config: dict[str, Any], nodes: dict[str, Any]) -> float:
                 f"network not ready: {protocol['sender']} could not reach {unreachable} "
                 f"within {timeout:g}s"
             )
-        time.sleep(1.0)
+        time.sleep(_READY_POLL_SECONDS)
     elapsed = time.monotonic() - start
 
     quoted_interface = shlex.quote(config["wireless"]["interface"])

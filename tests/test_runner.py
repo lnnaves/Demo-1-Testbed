@@ -354,6 +354,10 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("exit_code", summary)
             self.assertIn("duration_seconds", summary)
             self.assertIsNotNone(summary["duration_seconds"])
+            # Wall-clock instants (epoch seconds) to line up with PCAP timestamps.
+            self.assertIsInstance(summary["started_at"], float)
+            self.assertIsInstance(summary["ended_at"], float)
+            self.assertLessEqual(summary["started_at"], summary["ended_at"])
 
     def test_receiver_spawn_failure_is_reported_and_earlier_receivers_are_stopped(self):
         config = base_config(mode="broadcast", receivers=["gcs", "drone2"])

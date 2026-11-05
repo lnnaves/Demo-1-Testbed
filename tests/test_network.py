@@ -453,9 +453,13 @@ class WaitForNetworkTests(unittest.TestCase):
         sender = PingStation("dr1", {"192.168.123.1": 3})
         elapsed = wait_for_network(_mesh_config(), self._nodes(sender))
 
-        self.assertEqual(elapsed, 3.0)
+        # Three failed tries, each followed by a short pause (D8), then success.
+        self.assertAlmostEqual(elapsed, 0.6)
+        self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [0.2, 0.2, 0.2])
         pings = [c for c in sender.commands if c.startswith("ping")]
         self.assertEqual(len(pings), 4)
+        # Each ping still waits up to 1 s, so slow replies across the mesh count.
+        self.assertTrue(all(" -W 1 " in ping for ping in pings))
 
     def test_broadcast_waits_for_every_receiver(self):
         from scripts.testbed.network import wait_for_network

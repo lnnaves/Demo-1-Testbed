@@ -42,6 +42,7 @@ def _summary(tmp, mode="unicast", receivers=None):
         "pcap": str(Path(tmp) / f"{mode}.pcap"),
         "csv": str(Path(tmp) / f"{mode}.csv"),
         "summary": str(Path(tmp) / f"{mode}-summary.json"),
+        "timing": str(Path(tmp) / "timing.json"),
     }
     for path in outputs.values():
         Path(path).write_bytes(b"x")

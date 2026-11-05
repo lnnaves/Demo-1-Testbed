@@ -129,15 +129,16 @@ fim-a-fim; entrega/perda; mobilidade.
   config viram erro. Suíte: 167 testes OK. Confirmado no host (2 execuções →
   2 pastas, config copiado idêntico, success). Arquivos novos saem com dono
   `root` (não `nfsnobody`); apagar exige sudo.
-- Próximo na semana 2: tempos (experimento, fases, processos, com hora real) +
-  espera da malha a cada ~0,2 s (D8); depois metadados; depois PCAP por nó.
+- Tempos implementados (D10): `timing.json` por execução, instantes por processo,
+  espera da malha com pausa 0,2 s (D8; precisão real ~1,2 s, ver correção).
+  Suíte: 175 testes OK. Aguarda execução real. Depois: metadados; PCAP por nó.
 
 ## Pendências fora do plano semanal
 
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
 - Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de
   `ping` (usado pela espera da malha; `FROM drone:latest` já tem).
-- Semana 2: espera da malha passa a testar a cada ~0,2 s (DECISOES D8).
+- Em aberto (D8): encurtar `ping -W` para medir a espera da malha em décimos.
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código
   (registrar `ended_by`). Ajustar junto com a semana 6.
@@ -159,7 +160,7 @@ fim-a-fim; entrega/perda; mobilidade.
 ### Semana 2 — saídas e tempo
 - [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
 - [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
-- [ ] Tempos: experimento, cada fase, cada processo
+- [ ] Tempos: experimento, cada fase, cada processo (implementado; aguarda host)
 - [ ] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência

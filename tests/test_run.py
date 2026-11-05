@@ -36,13 +36,23 @@ class RunMainTests(unittest.TestCase):
         # gets inert stand-ins and may inspect them.
         stale_patch = patch("run.cleanup_stale_environment")
         wait_patch = patch("run.wait_for_network", return_value=0.0)
-        rundir_patch = patch("run.prepare_run_directory", return_value={"directory": "/runs/exp/2026-11-05_10-00-00"})
+        rundir_patch = patch(
+            "run.prepare_run_directory",
+            return_value={"directory": "/runs/exp/2026-11-05_10-00-00", "timing": "/runs/exp/2026-11-05_10-00-00/timing.json"},
+        )
         self.mock_prepare_run_directory = rundir_patch.start()
         self.addCleanup(rundir_patch.stop)
+        timing_patch = patch("run._write_timing")
+        self.mock_write_timing = timing_patch.start()
+        self.addCleanup(timing_patch.stop)
         self.mock_cleanup_stale = stale_patch.start()
         self.mock_wait_for_network = wait_patch.start()
         self.addCleanup(stale_patch.stop)
         self.addCleanup(wait_patch.stop)
+
+    def _phases(self):
+        timeline = self.mock_write_timing.call_args.args[1]
+        return [(phase["name"], phase["status"]) for phase in timeline.to_dict()["phases"]]
 
     def test_reports_phase_and_traceback_on_unexpected_error(self):
         network = MagicMock()
@@ -186,6 +196,45 @@ class RunMainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.mock_prepare_run_directory.assert_called_once_with(config, "/data/results")
         self.assertIn("Run directory: /runs/exp/2026-11-05_10-00-00", self.stderr.getvalue())
+
+    def test_timing_records_every_phase_including_cleanup(self):
+        network = MagicMock()
+        network.nodes = {}
+        with patch("sys.argv", ["run.py"]), \
+             patch("run.load_config", return_value=_config()), \
+             patch("run.build_network", return_value=network), \
+             patch("run.start_capture", return_value=MagicMock()), \
+             patch("run.execute_protocol", return_value={"status": "success", "failures": []}), \
+             patch("run.write_outputs", return_value={"status": "success", "failures": []}), \
+             patch("run.cleanup_mininet"):
+            run.main()
+
+        self.assertEqual(self.mock_write_timing.call_args.args[0], "/runs/exp/2026-11-05_10-00-00/timing.json")
+        self.assertEqual(self._phases(), [
+            ("load_config", "ok"), ("prepare_output", "ok"), ("prepare_host", "ok"),
+            ("build_network", "ok"), ("wait_network", "ok"), ("start_capture", "ok"),
+            ("execute_protocol", "ok"), ("stop_capture", "ok"), ("write_outputs", "ok"),
+            ("cleanup", "ok"),
+        ])
+        self.assertIn("Total time:", self.stderr.getvalue())
+
+    def test_timing_marks_the_failed_phase_and_is_still_written(self):
+        self.mock_wait_for_network.side_effect = RuntimeError("network not ready")
+        with patch("sys.argv", ["run.py"]), \
+             patch("run.load_config", return_value=_config()), \
+             patch("run.build_network", return_value=MagicMock()), \
+             patch("run.cleanup_mininet"):
+            exit_code = run.main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(self._phases()[-2:], [("wait_network", "failed"), ("cleanup", "ok")])
+
+    def test_timing_is_not_written_when_config_is_invalid(self):
+        with patch("sys.argv", ["run.py"]), \
+             patch("run.load_config", side_effect=ConfigError("bad")):
+            run.main()
+
+        self.mock_write_timing.assert_not_called()
 
     def test_output_dir_defaults_to_logs(self):
         with patch("sys.argv", ["run.py"]):

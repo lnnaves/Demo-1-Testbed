@@ -199,7 +199,7 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
         errors.append(f"capture packet_count is {metrics.get('packet_count')!r}, expected a positive integer")
 
     outputs = summary.get("outputs") or {}
-    for key in ("config", "pcap", "csv", "summary"):
+    for key in ("config", "pcap", "csv", "summary", "timing"):
         _assert_file_readable(outputs.get(key, ""), errors)
 
     return errors
