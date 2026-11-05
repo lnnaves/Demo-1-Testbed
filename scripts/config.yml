@@ -59,6 +59,12 @@ nodes:
     memory: 512m
     txpower: 10
 
+# One PCAP per participant (sender and each receiver), on wireless.interface.
+# Without a filter every packet is captured; metrics still look only at UDP on
+# protocol.port. Optional tcpdump (BPF) filter, e.g. "udp port 5000":
+capture:
+  filter: ""
+
 binaries:
   sender: bin/sender
   receiver: bin/receiver

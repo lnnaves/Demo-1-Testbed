@@ -158,12 +158,17 @@ Cada execução grava numa pasta própria, que nunca é sobrescrita:
 ```text
 logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
     config.yml      cópia exata da configuração usada
-    capture.pcap    tráfego capturado no sender
+    capture-<nó>.pcap  um PCAP por participante (sender e cada receiver)
     metrics.csv     métricas passivas observáveis da captura
     summary.json    resumo de processos, captura, métricas, falhas, warnings e caminhos
     timing.json     início, fim e duração do experimento e de cada fase
     metadata.json   versões: commit do testbed, hash dos binários, imagem, kernel, BATMAN
 ```
+
+Por padrão a captura grava todo o tráfego da interface do protocolo (`bat0`).
+Um filtro do tcpdump pode ser definido em `capture.filter` (ex.:
+`"udp port 5000"`); vazio captura tudo. As métricas do `metrics.csv` vêm do
+PCAP do sender e consideram só UDP na porta do protocolo.
 
 O `timing.json` é gravado por último, também quando a execução falha no meio.
 Os instantes estão em segundos Unix (`started_at`), a mesma base dos

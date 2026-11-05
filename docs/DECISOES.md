@@ -385,3 +385,46 @@ dos binários iguais aos do `sha256sum`; BATMAN-adv 2025.5; kernel
 criada em 23/09 às 17:35, cerca de meia hora **antes** da última mudança do
 Dockerfile (commit `7c9625e`, 18:03). A imagem em uso pode não corresponder ao
 Dockerfile atual.
+
+---
+
+## D12. Um PCAP por participante; filtro de captura opcional (05/11/2026)
+
+**Contexto: quando surgiu.** Último item da semana 2, já previsto no plano.
+Até aqui havia **uma** captura, só no sender, e com o filtro fixo
+`udp port <porta>`. Com isso:
+- não dava para saber o que chegou a cada receiver. Isso é necessário para a
+  latência e a perda da semana 3, que comparam o PCAP do sender com o de cada
+  receiver;
+- qualquer tráfego fora da porta do protocolo era descartado na captura (ARP,
+  ICMP, outras portas que o protocolo do usuário use), e não poderia ser
+  analisado depois.
+
+**Decisão.**
+- Uma captura por **participante**: o sender e cada receiver. Arquivos
+  `capture-<id do nó>.pcap` na pasta da execução. Em unicast são 2 arquivos;
+  em broadcast, 1 + o número de receivers.
+- Por padrão a captura grava **todo o tráfego** da interface
+  (`wireless.interface`, `bat0`). Filtrar no momento da captura perde dados de
+  forma irreversível, e filtrar na análise não perde nada.
+- Seção nova e opcional no config: `capture.filter`, um filtro do tcpdump
+  (BPF), por exemplo `"udp port 5000"`. Vazio = tudo. Serve para reduzir o
+  tamanho dos PCAPs em execuções longas.
+- As métricas atuais (`metrics.csv`) continuam vindo do **PCAP do sender** e
+  olhando só UDP na porta do protocolo. A análise por receiver é a semana 3.
+- Se um tcpdump morre logo ao iniciar (ex.: filtro com erro de sintaxe), a
+  execução falha **antes** do protocolo, com a mensagem do tcpdump. Antes, isso
+  só aparecia no fim, como captura vazia.
+
+**O que a `bat0` mostra.** A `bat0` é a interface "virtual" do BATMAN: nela
+aparece o tráfego IP/ARP dos programas (o que o protocolo envia e recebe). As
+mensagens de roteamento do próprio BATMAN (OGMs) passam na `wlan0` e **não**
+aparecem nesses PCAPs.
+
+**Fora do escopo agora.** Capturar também nós que não são participantes (ex.:
+um relay). Útil para ver o multi-hop por dentro; fica para as semanas 4–5 se
+for necessário.
+
+**Onde.** `CaptureSet`, `capture_participants` e `start_capture` em
+`scripts/testbed/metrics.py`; caminhos em `scripts/testbed/rundir.py`;
+`capture.filter` em `scripts/testbed/config.py`.

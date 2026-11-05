@@ -11,12 +11,13 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "logs"
 # process by script (e.g. logs/<experiment>/*/summary.json).
 RUN_FILES = {
     "config": "config.yml",
-    "pcap": "capture.pcap",
     "csv": "metrics.csv",
     "summary": "summary.json",
     "timing": "timing.json",
     "metadata": "metadata.json",
 }
+# One PCAP per participant: capture-<node id>.pcap
+PCAP_NAME = "capture-{node}.pcap"
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
 
@@ -45,6 +46,10 @@ def prepare_run_directory(
 
     output = {"directory": str(run_dir)}
     output.update({key: str(run_dir / name) for key, name in RUN_FILES.items()})
+    protocol = config["protocol"]
+    output["pcaps"] = {
+        node: str(run_dir / PCAP_NAME.format(node=node)) for node in [protocol["sender"], *protocol["receivers"]]
+    }
     config_path = config.get("config_path")
     if config_path:
         shutil.copyfile(config_path, output["config"])

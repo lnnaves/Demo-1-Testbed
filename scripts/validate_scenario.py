@@ -199,8 +199,14 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
         errors.append(f"capture packet_count is {metrics.get('packet_count')!r}, expected a positive integer")
 
     outputs = summary.get("outputs") or {}
-    for key in ("config", "pcap", "csv", "summary", "timing", "metadata"):
+    for key in ("config", "csv", "summary", "timing", "metadata"):
         _assert_file_readable(outputs.get(key, ""), errors)
+    pcaps = outputs.get("pcaps") or {}
+    expected_pcaps = [protocol["sender"], *expected_receivers]
+    if sorted(pcaps) != sorted(expected_pcaps):
+        errors.append(f"PCAPs are for {sorted(pcaps)!r}, expected {sorted(expected_pcaps)!r}")
+    for path in pcaps.values():
+        _assert_file_readable(path, errors)
 
     return errors
 

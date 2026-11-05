@@ -17,7 +17,11 @@ class RunDirectoryTests(unittest.TestCase):
         self.config_file.write_text("experiment:\n  id: exp-01\n", encoding="utf-8")
 
     def config(self):
-        return {"experiment": {"id": "exp-01"}, "config_path": str(self.config_file)}
+        return {
+            "experiment": {"id": "exp-01"},
+            "protocol": {"sender": "drone1", "receivers": ["gcs", "drone2"]},
+            "config_path": str(self.config_file),
+        }
 
     def test_creates_experiment_and_timestamp_directory_with_fixed_names(self):
         config = self.config()
@@ -27,7 +31,12 @@ class RunDirectoryTests(unittest.TestCase):
         self.assertTrue(run_dir.is_dir())
         self.assertEqual(output["directory"], str(run_dir))
         self.assertEqual(output["config"], str(run_dir / "config.yml"))
-        self.assertEqual(output["pcap"], str(run_dir / "capture.pcap"))
+        # One PCAP per participant, named after the node.
+        self.assertEqual(output["pcaps"], {
+            "drone1": str(run_dir / "capture-drone1.pcap"),
+            "gcs": str(run_dir / "capture-gcs.pcap"),
+            "drone2": str(run_dir / "capture-drone2.pcap"),
+        })
         self.assertEqual(output["csv"], str(run_dir / "metrics.csv"))
         self.assertEqual(output["summary"], str(run_dir / "summary.json"))
         self.assertIs(config["output"], output)
@@ -47,7 +56,9 @@ class RunDirectoryTests(unittest.TestCase):
         self.assertEqual(Path(third).name, "2026-11-05_15-30-12-3")
 
     def test_works_without_a_config_file(self):
-        output = prepare_run_directory({"experiment": {"id": "exp-01"}}, self.base, now=NOW)
+        config = self.config()
+        del config["config_path"]
+        output = prepare_run_directory(config, self.base, now=NOW)
 
         self.assertTrue(Path(output["directory"]).is_dir())
         self.assertFalse(Path(output["config"]).exists())

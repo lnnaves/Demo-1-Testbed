@@ -135,6 +135,22 @@ class ConfigTests(unittest.TestCase):
         )
         self.assert_rejected(CONFIG.replace("  receiver: bin/receiver\n", "  receiver: bin/receiver\n  relay: bin/relay\n", 1), "binaries: unknown field 'relay'")
 
+    def test_capture_filter_is_optional(self):
+        tmp, root, config = self.make_root()
+        with tmp:
+            self.assertIsNone(load_config(config, root=root)["capture"]["filter"])
+        for value in ('""', "null"):
+            tmp, root, config = self.make_root(CONFIG + f"capture:\n  filter: {value}\n")
+            with tmp:
+                self.assertIsNone(load_config(config, root=root)["capture"]["filter"])
+        tmp, root, config = self.make_root(CONFIG + 'capture:\n  filter: " udp port 5000 "\n')
+        with tmp:
+            self.assertEqual(load_config(config, root=root)["capture"]["filter"], "udp port 5000")
+
+    def test_capture_filter_must_be_text_and_section_is_strict(self):
+        self.assert_rejected(CONFIG + "capture:\n  filter: 5000\n", "capture.filter must be")
+        self.assert_rejected(CONFIG + "capture:\n  interface: wlan0\n", "capture: unknown field 'interface'")
+
     def test_protocol_has_no_packet_count_contract(self):
         tmp, root, config = self.make_root()
         with tmp:

@@ -139,7 +139,8 @@ fim-a-fim; entrega/perda; mobilidade.
 - **Achado:** imagem `drone:latest` criada 2026-09-23 17:35 -03, antes da última
   mudança do Dockerfile (7c9625e, 18:03 -03): pode não refletir o Dockerfile
   atual. Sugerido rebuild (`scripts/build-docker.sh`); usuária não decidiu.
-- Próximo na semana 2: PCAP por nó + filtro.
+- PCAP por participante + `capture.filter` implementados (D12). Suíte 185 OK.
+  Aguarda host (conferir também o id novo da imagem após o rebuild).
 
 ## Pendências fora do plano semanal
 
@@ -169,7 +170,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
 - [x] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
 - [x] Tempos: experimento, cada fase, cada processo
-- [ ] PCAP por participante (sender e receivers) + filtro configurável
+- [ ] PCAP por participante (sender e receivers) + filtro configurável (implementado; aguarda host)
 
 ### Semana 3 — latência
 - [ ] Casamento de pacotes por hash (tshark) → latência por pacote (CSV),

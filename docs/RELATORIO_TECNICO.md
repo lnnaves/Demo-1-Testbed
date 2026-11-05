@@ -165,9 +165,12 @@ recebe `--mode` nem `--count`.
 
 ## 7. Captura e métricas
 
-`metrics.py` inicia `tcpdump -i <interface> -w - udp port <porta>` no host,
-dentro do namespace de rede do nó sender (`nsenter -t <pid> -n`), antes de os
-processos começarem, e grava diretamente o PCAP configurado. O `popen` do
+`metrics.py` inicia um `tcpdump -i <interface> -w - [<capture.filter>]` por
+participante (sender e cada receiver), no host, dentro do namespace de rede do
+nó (`nsenter -t <pid> -n`), antes de os processos começarem. Sem filtro, todo o
+tráfego da interface é gravado. Meio segundo após iniciar, um tcpdump que já
+morreu (ex.: filtro inválido) faz a execução falhar antes do protocolo. As
+métricas abaixo vêm do PCAP do sender, lido com o filtro `udp port <porta>`. O `popen` do
 Containernet não é usado porque o `docker exec -t` aloca um TTY que corrompe a
 saída binária e não repassa o `SIGINT` ao tcpdump. Na
 parada, envia `SIGINT` (com fallback `terminate`/`kill`) e reanalisa o arquivo
@@ -196,7 +199,8 @@ criada logo após a leitura do config (fase `prepare_output`), e uma execução
 que falha antes do fim deixa ao menos o `config.yml`.
 
 - **`config.yml`**: cópia exata do config usado;
-- **`capture.pcap`**: tráfego capturado no nó sender;
+- **`capture-<nó>.pcap`**: um por participante (sender e cada receiver),
+  com todo o tráfego da interface ou com o filtro de `capture.filter`;
 - **`metrics.csv`**: uma linha com as métricas acima;
 - **`metadata.json`**: commit do testbed (e alterações não commitadas),
   sha256 dos binários, id das imagens Docker, kernel, versão do BATMAN-adv,

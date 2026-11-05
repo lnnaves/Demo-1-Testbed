@@ -39,14 +39,15 @@ def _summary(tmp, mode="unicast", receivers=None):
     receivers = receivers or ["gcs"]
     outputs = {
         "config": str(Path(tmp) / "config.yml"),
-        "pcap": str(Path(tmp) / f"{mode}.pcap"),
         "csv": str(Path(tmp) / f"{mode}.csv"),
         "summary": str(Path(tmp) / f"{mode}-summary.json"),
         "timing": str(Path(tmp) / "timing.json"),
         "metadata": str(Path(tmp) / "metadata.json"),
     }
-    for path in outputs.values():
-        Path(path).write_bytes(b"x")
+    outputs["pcaps"] = {node: str(Path(tmp) / f"capture-{node}.pcap") for node in ["drone1", *receivers]}
+    for path in [*outputs.values(), *outputs["pcaps"].values()]:
+        if isinstance(path, str):
+            Path(path).write_bytes(b"x")
     destination = "192.168.123.255" if mode == "broadcast" else "192.168.123.1"
     return {
         "mode": mode,
@@ -167,6 +168,14 @@ class ValidateScenarioTests(unittest.TestCase):
             errors = validate_scenario.validate_summary(_config(), summary)
 
         self.assertTrue(any("capture was not started" in error for error in errors))
+
+    def test_validate_summary_requires_one_pcap_per_participant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp, mode="broadcast", receivers=["gcs", "drone2"])
+            del summary["outputs"]["pcaps"]["drone2"]
+            errors = validate_scenario.validate_summary(_config(mode="broadcast", receivers=["gcs", "drone2"]), summary)
+
+        self.assertTrue(any("PCAPs are for" in error for error in errors))
 
     def test_validate_summary_rejects_missing_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

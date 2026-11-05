@@ -18,7 +18,7 @@ SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 
 # Every field the testbed understands, per section. Anything else is rejected,
 # so a typo (e.g. "postion") or a removed field never runs silently ignored.
-_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries"}
+_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "capture"}
 _EXPERIMENT_FIELDS = {
     "id", "duration_seconds", "receiver_startup_seconds", "shutdown_timeout_seconds",
     "network_ready_timeout_seconds", "drain_seconds",
@@ -31,6 +31,7 @@ _WIRELESS_FIELDS = {
 }
 _NODE_FIELDS = {"id", "container_name", "ip", "position", "image", "memory", "txpower"}
 _BINARIES_FIELDS = {"sender", "receiver"}
+_CAPTURE_FIELDS = {"filter"}
 
 
 class ConfigError(ValueError):
@@ -140,6 +141,13 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     _reject_unknown_fields(experiment, _EXPERIMENT_FIELDS, "experiment")
     _reject_unknown_fields(protocol, _PROTOCOL_FIELDS, "protocol")
     _reject_unknown_fields(wireless, _WIRELESS_FIELDS, "wireless")
+    capture = _require_mapping(data.get("capture") or {}, "capture")
+    _reject_unknown_fields(capture, _CAPTURE_FIELDS, "capture")
+    capture_filter = capture.get("filter")
+    if capture_filter is not None and not isinstance(capture_filter, str):
+        raise ConfigError("capture.filter must be a tcpdump (BPF) filter string")
+    # Empty means "capture everything"; syntax is checked by tcpdump at start.
+    capture_filter = capture_filter.strip() if capture_filter else None
 
     experiment_id = _require_string(experiment.get("id"), "experiment.id")
     if not _NODE_ID.match(experiment_id):
@@ -338,4 +346,5 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "wireless": normalized_wireless,
         "nodes": normalized_nodes,
         "binaries": normalized_binaries,
+        "capture": {"filter": capture_filter or None},
     }
