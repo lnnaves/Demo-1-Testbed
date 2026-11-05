@@ -126,8 +126,11 @@ fim-a-fim; entrega/perda; mobilidade.
   atualizados sobre alcance (confirmado no host: success, malha 10.0 s).
 - 2026-11-05: pasta por execução implementada (D9): `testbed/rundir.py`,
   `run.py --output-dir`, bloco `output:` removido, campos desconhecidos no
-  config viram erro. Suíte: 167 testes OK. **Aguardando execução real** para
-  marcar o checkbox.
+  config viram erro. Suíte: 167 testes OK. Confirmado no host (2 execuções →
+  2 pastas, config copiado idêntico, success). Arquivos novos saem com dono
+  `root` (não `nfsnobody`); apagar exige sudo.
+- Próximo na semana 2: tempos (experimento, fases, processos, com hora real) +
+  espera da malha a cada ~0,2 s (D8); depois metadados; depois PCAP por nó.
 
 ## Pendências fora do plano semanal
 
@@ -154,7 +157,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] Marco: unicast e broadcast reais em `success`
 
 ### Semana 2 — saídas e tempo
-- [ ] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
+- [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
 - [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
 - [ ] Tempos: experimento, cada fase, cada processo
 - [ ] PCAP por participante (sender e receivers) + filtro configurável
