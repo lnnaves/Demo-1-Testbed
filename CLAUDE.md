@@ -93,8 +93,12 @@ fim-a-fim; entrega/perda; mobilidade.
   aplicar na `wlan0`.
 - wmediumd tem aleatoriedade não controlável: mesma config = mesmo cenário,
   não mesmos resultados → repetições + estatística.
-- `logs/` é gravado como `nfsnobody` (provável root squash); artefatos antigos
-  em `logs/` (inclusive `unicast-demo-01/`) são de versões anteriores.
+- Arquivos de root aparecem como `nfsnobody` **só dentro do sandbox Flatpak**
+  (mapeamento de uid); no host o dono é `root` (apagar exige sudo). Não é
+  root squash. Artefatos antigos soltos em `logs/` são de versões anteriores.
+- **BATMAN DAT (Distributed ARP Table)** responde ARP localmente: no PCAP do
+  sender o ARP reply vem 8 µs após o request e o ARP nem aparece no receiver.
+  `ip neigh flush` limpa só o ARP do kernel, não o cache DAT da espera da malha.
 - `third-party/containernet/.git` aponta para repositório inexistente (inofensivo).
 
 ## Ambiente de trabalho
@@ -139,8 +143,10 @@ fim-a-fim; entrega/perda; mobilidade.
 - **Achado:** imagem `drone:latest` criada 2026-09-23 17:35 -03, antes da última
   mudança do Dockerfile (7c9625e, 18:03 -03): pode não refletir o Dockerfile
   atual. Sugerido rebuild (`scripts/build-docker.sh`); usuária não decidiu.
-- PCAP por participante + `capture.filter` implementados (D12). Suíte 185 OK.
-  Aguarda host (conferir também o id novo da imagem após o rebuild).
+- PCAP por participante + `capture.filter` (D12) confirmados no host. Suíte 187
+  OK. **Semana 2 concluída.** Imagem refeita (id d7f035f1…, 2026-11-05 15:35).
+- Próximo: semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
+  .551854 → no do gcs .553587 = 1,73 ms.
 
 ## Pendências fora do plano semanal
 
@@ -170,7 +176,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
 - [x] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
 - [x] Tempos: experimento, cada fase, cada processo
-- [ ] PCAP por participante (sender e receivers) + filtro configurável (implementado; aguarda host)
+- [x] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência
 - [ ] Casamento de pacotes por hash (tshark) → latência por pacote (CSV),
