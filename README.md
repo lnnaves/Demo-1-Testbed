@@ -50,6 +50,19 @@ protocol:
     - gcs            # broadcast aceita vários receivers
 ```
 
+## Alcance do rádio e posições
+
+Não existe um alcance fixo por nó. O sinal entre dois nós é calculado pelo
+emulador a partir de `txpower`, do modelo de propagação
+(`wireless.propagation_model`/`propagation_exponent`) e da distância; abaixo de
+`wireless.noise_threshold_dbm` os nós não se ouvem. Com os valores padrão, o
+enlace direto vai até cerca de 60 m e a qualidade cai bem antes disso.
+
+O testbed não garante conectividade: posicione os nós (`nodes[].position`) nas
+distâncias que deseja avaliar para observar a partir de que ponto o seu
+protocolo deixa de funcionar bem. Se nenhum caminho existir, a execução falha
+na espera da malha com `network not ready`.
+
 ## Integração do protocolo
 
 Os arquivos `bin/sender` e `bin/receiver` são **modelos mínimos substituíveis**.

@@ -42,6 +42,12 @@ fim-a-fim; entrega/perda; mobilidade.
 - Latência: casar pacotes entre PCAPs (sender × receiver) pelo hash do payload
   com `tshark` (só UDP; tshark remonta fragmentos). Relógio é compartilhado
   entre containers, timestamps são comparáveis. Broadcast: por receiver.
+- **O testbed expõe o alcance, não garante conectividade** (decidido em
+  2026-11-05). O usuário escolhe as posições para descobrir onde o protocolo
+  dele deixa de funcionar bem; o testbed registra o que aconteceu (perda,
+  latência, rotas). Não calibrar nem alterar o rádio do Mininet-WiFi. O cenário
+  padrão é só exemplo e não precisa ter multi-hop. `nodes[].range` foi removido
+  (aceito com aviso, ignorado) porque o wmediumd não o usa.
 - Mobilidade: tipos `static` e `trajectory` (waypoints no YAML ou CSV).
   Plano B/talvez A: thread do testbed interpola e chama `setPosition()`.
   Modelos aleatórios só se sobrar tempo.
@@ -74,9 +80,12 @@ fim-a-fim; entrega/perda; mobilidade.
 - **Mobilidade funciona com `setPosition()`** em `DockerSta` + wmediumd
   interference: sinal cai de -52 dBm (15 m) a -90 dBm (~60 m), rota muda para
   via relay e volta. Plano A da semana 4 validado.
-- **`range` do config não tem efeito** no modo interference. Alcance direto
-  real ~60 m (logDistance 3.5, 10 dBm, -91 dBm). Consequência: no cenário
-  padrão (0/20/40 m) **todos os nós são vizinhos diretos — não há multi-hop**.
+- **`range` não tem efeito** no modo interference: passado ao `addStation` só
+  fixa `wintf.range` (static_range); potência só mudaria via `setRange()`.
+  Alcance direto real ~60 m (logDistance 3.5, 10 dBm, -91 dBm). Sinal medido
+  (poc_200ms.log): 15 m -53..-74, 30 m -68..-82, 45 m -82..-89, 60 m -90 dBm;
+  ping falhou com enlace de ~42–57 m. No cenário padrão (0/20/40) todos são
+  vizinhos diretos (aceito: é só exemplo).
 - `batctl o` mantém a última rota durante desconexão (até o purge); ao logar
   topologia, guardar também o last-seen. Valores de sinal 0/+1/+3/-7 dBm muito
   perto de outro nó são quirk do wmediumd.
@@ -102,7 +111,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (fim de 2026-11-03)
+## Estado atual (2026-11-05)
 
 - **Semana 1 concluída e commitada** na branch `semana1-execucao-real`
   (ainda não mergeada na `main`, nada enviado ao GitHub). Suíte: 157 testes OK.
@@ -111,13 +120,14 @@ fim-a-fim; entrega/perda; mobilidade.
 - `scripts/config.yml` versionado: unicast, drone1→gcs, posições 0/20/40,
   `network_ready_timeout_seconds: 60`, `drain_seconds: 1`, BLA desligado,
   `batman_orig_interval_ms: 1000`.
-- Fora do Git: `docs/Plano_execucao` (arquivo da usuária) e `poc_*.log` (ignorados).
+- Fora do Git: `docs/Plano_execucao` (arquivo da usuária, plano semanal igual
+  ao deste arquivo) e `poc_*.log` (ignorados).
+- 2026-11-05: `range` removido (aviso se presente), README/RELATORIO_TECNICO
+  atualizados sobre alcance. Suíte: 159 testes OK. Próximo: semana 2, pasta por
+  execução.
 
 ## Pendências fora do plano semanal
 
-- Decidir o que fazer com `range` (remover do config ou calibrar txpower/expoente
-  para o alcance bater) e ajustar o cenário padrão para ter multi-hop real
-  (espaçamento > ~60 m entre extremos e relay no meio).
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código

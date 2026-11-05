@@ -106,6 +106,24 @@ class RunMainTests(unittest.TestCase):
         network.stop.assert_called_once()
         capture.stop.assert_called_once()
 
+    def test_prints_config_warnings(self):
+        network = MagicMock()
+        network.nodes = {}
+        capture = MagicMock()
+        config = {**_config(), "warnings": ["nodes[0].range is ignored"]}
+
+        with patch("sys.argv", ["run.py"]), \
+             patch("run.load_config", return_value=config), \
+             patch("run.build_network", return_value=network), \
+             patch("run.start_capture", return_value=capture), \
+             patch("run.execute_protocol", return_value={"status": "success", "failures": []}), \
+             patch("run.write_outputs", return_value={"status": "success", "failures": []}), \
+             patch("run.cleanup_mininet"):
+            exit_code = run.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("warning: nodes[0].range is ignored", self.stderr.getvalue())
+
     def test_lists_warnings_for_inconclusive_result(self):
         network = MagicMock()
         network.nodes = {}

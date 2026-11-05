@@ -36,6 +36,8 @@ def main() -> int:
 
     try:
         config = load_config(args.config)
+        for warning in config.get("warnings", []):
+            print(f"warning: {warning}", file=sys.stderr)
 
         phase = "prepare_host"
         cleanup_stale_environment(config)

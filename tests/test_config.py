@@ -120,6 +120,21 @@ class ConfigTests(unittest.TestCase):
         with tmp:
             self.assertEqual(load_config(config, root=root)["wireless"]["batman_orig_interval_ms"], 200)
 
+    def test_node_range_is_ignored_with_a_warning(self):
+        tmp, root, config = self.make_root()
+        with tmp:
+            loaded = load_config(config, root=root)
+        self.assertEqual(loaded["warnings"], [])
+        self.assertNotIn("range", loaded["nodes"]["gcs"])
+
+        with_range = CONFIG.replace("    position: [0, 0, 0]\n", "    position: [0, 0, 0]\n    range: 25\n", 1)
+        tmp, root, config = self.make_root(with_range)
+        with tmp:
+            loaded = load_config(config, root=root)
+        self.assertNotIn("range", loaded["nodes"]["gcs"])
+        self.assertEqual(len(loaded["warnings"]), 1)
+        self.assertIn("nodes[0].range is ignored", loaded["warnings"][0])
+
     def test_protocol_has_no_packet_count_contract(self):
         tmp, root, config = self.make_root()
         with tmp:

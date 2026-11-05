@@ -63,13 +63,16 @@ Blocos existentes hoje:
   `broadcast_ip`, `interface` (`bat0`), `batman_bridge_loop_avoidance`
   (padrão `false`), `batman_orig_interval_ms` (padrão 1000);
 - `nodes`: lista com `id`, `container_name`, `ip`, `position`, `image`,
-  `memory`, `txpower`, `range`;
+  `memory`, `txpower` (um `range` antigo é aceito, mas ignorado com aviso);
 - `binaries`: `sender` e `receiver` (caminhos sob `bin/`);
 - `output`: `pcap`, `csv`, `summary`.
 
-Cenário padrão: `gcs` (192.168.123.1), `drone1` (192.168.123.2) e `drone2`
-(192.168.123.3) em linha, com alcance de 25 m e espaçamento de 25 m, o que
-produz um caminho multi-hop real entre os extremos.
+Cenário padrão (apenas um exemplo): `gcs` (192.168.123.1), `drone1`
+(192.168.123.2) e `drone2` (192.168.123.3) em linha, em 0, 20 e 40 m. Com os
+parâmetros de rádio padrão o enlace direto vai até ~60 m, então nesse exemplo
+todos os nós são vizinhos diretos. O testbed não garante conectividade nem
+multi-hop: o usuário posiciona os nós nas distâncias que quer avaliar e observa
+o resultado.
 
 ### Validações aplicadas por `config.py`
 
@@ -91,8 +94,15 @@ produz um caminho multi-hop real entre os extremos.
 
 `network.py` cria uma `Containernet` com `wmediumd` em modo `interference` e
 modelo de propagação configurável. Cada nó é uma `DockerSta` privilegiada, com
-imagem, limite de memória, posição, alcance e potência definidos no YAML, e com
+imagem, limite de memória, posição e potência definidos no YAML, e com
 `bin/` montado em `/opt/protocol/bin:ro`.
+
+Não existe alcance fixo por nó. No modo interference o wmediumd calcula o
+sinal de cada par de nós a partir de `txpower`, do modelo de propagação e da
+distância, e descarta o que fica abaixo de `noise_threshold_dbm`. Medido com
+os valores padrão (10 dBm, logDistance 3.5, -91 dBm, fading 3): ~-53 a -74 dBm
+a 15 m, ~-68 a -82 dBm a 30 m, ~-82 a -89 dBm a 45 m e ~-90 dBm a 60 m. Por
+isso o parâmetro `range` do Mininet-WiFi não é repassado.
 
 Os links são `adhoc` com `proto="batman_adv"`, ou seja, o próprio Mininet-WiFi
 é o dono do ciclo de vida do BATMAN-adv. Após `net.start()`, o testbed apenas

@@ -206,6 +206,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         raise ConfigError("nodes must be a non-empty list")
 
     normalized_nodes: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
     container_names: dict[str, str] = {}
     node_ips: dict[str, str] = {}
     for index, node_data in enumerate(nodes):
@@ -274,8 +275,15 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "image": _require_string(node.get("image", "drone:latest"), f"nodes[{index}].image"),
             "memory": _require_string(node.get("memory", "512m"), f"nodes[{index}].memory"),
             "txpower": float(_require_number(node.get("txpower", 10), f"nodes[{index}].txpower")),
-            "range": float(_require_number(node.get("range", 25), f"nodes[{index}].range")),
         }
+        if "range" in node:
+            # wmediumd (interference mode) derives reachability from txpower,
+            # the propagation model and noise_threshold_dbm; a fixed "range"
+            # is never used by it. Accepted for old configs, but ignored.
+            warnings.append(
+                f"nodes[{index}].range is ignored: the radio range follows from txpower, "
+                "wireless.propagation_model/propagation_exponent and wireless.noise_threshold_dbm"
+            )
 
     if sender not in normalized_nodes:
         raise ConfigError(f"protocol.sender references unknown node: {sender}")
@@ -318,4 +326,5 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "nodes": normalized_nodes,
         "binaries": normalized_binaries,
         "output": normalized_output,
+        "warnings": warnings,
     }

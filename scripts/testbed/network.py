@@ -52,7 +52,6 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
                 dimage=node_cfg["image"],
                 privileged=True,
                 mem_limit=node_cfg["memory"],
-                range=node_cfg["range"],
                 txpower=node_cfg["txpower"],
                 volumes=[volume],
             )

@@ -119,7 +119,6 @@ def _config():
                 "position": [0, 0, 0],
                 "image": "drone:latest",
                 "memory": "512m",
-                "range": 25,
                 "txpower": 10,
             },
             "drone1": {
@@ -129,7 +128,6 @@ def _config():
                 "position": [25, 0, 0],
                 "image": "drone:latest",
                 "memory": "512m",
-                "range": 25,
                 "txpower": 10,
             },
         },
@@ -224,6 +222,9 @@ class NetworkBuildTests(unittest.TestCase):
         for _, kwargs in net.stations:
             self.assertIs(kwargs["cls"], FakeDockerSta)
             self.assertEqual(kwargs["volumes"], [expected_volume])
+            # A fixed range would only freeze Mininet-WiFi's own estimate;
+            # wmediumd decides reachability from txpower and propagation.
+            self.assertNotIn("range", kwargs)
         self.assertTrue(expected_volume.endswith(":ro"))
 
     def test_configure_nodes_runs_before_add_link(self):
