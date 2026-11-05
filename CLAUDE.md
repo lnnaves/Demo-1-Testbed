@@ -202,6 +202,10 @@ CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 
 ## Referências
 
+- `docs/PROMPT_RETOMADA.md`: prompt para iniciar uma sessão nova (o que ler,
+  onde paramos, como trabalhar). Atualizar ao fim de cada dia.
+- `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
+
 - **`docs/DECISOES.md`: registro de decisões com explicação completa**
   (contexto/quando surgiu, decisão, onde no código, implicações). **Toda decisão
   nova ou explicação dada à usuária sobre o porquê de algo deve virar entrada
