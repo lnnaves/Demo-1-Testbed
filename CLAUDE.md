@@ -131,7 +131,10 @@ fim-a-fim; entrega/perda; mobilidade.
   `root` (não `nfsnobody`); apagar exige sudo.
 - Tempos implementados (D10): `timing.json` por execução, instantes por processo,
   espera da malha com pausa 0,2 s (D8; precisão real ~1,2 s, ver correção).
-  Suíte: 175 testes OK. Aguarda execução real. Depois: metadados; PCAP por nó.
+  Suíte: 175 testes OK. Confirmado no host: total 28,4 s = prepare_host 3,4 +
+  build_network 7,3 + wait_network 10,2 + execute_protocol 2,5 + cleanup 5,0;
+  pacote do PCAP cai entre started_at/ended_at do sender (mesma base de tempo).
+- Próximo na semana 2: metadados; depois PCAP por nó + filtro.
 
 ## Pendências fora do plano semanal
 
@@ -160,7 +163,7 @@ fim-a-fim; entrega/perda; mobilidade.
 ### Semana 2 — saídas e tempo
 - [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
 - [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
-- [ ] Tempos: experimento, cada fase, cada processo (implementado; aguarda host)
+- [x] Tempos: experimento, cada fase, cada processo
 - [ ] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência

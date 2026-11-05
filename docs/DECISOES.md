@@ -308,6 +308,13 @@ levavam a montagem da rede, a limpeza ou a execução inteira.
 - A exceção é um erro no config: nesse caso a pasta da execução nem chega a
   ser criada.
 
+**Confirmação real (05/11).** Total 28,4 s, igual à soma das fases:
+`prepare_host` 3,4 s, `build_network` 7,3 s, `wait_network` 10,2 s,
+`execute_protocol` 2,5 s e `cleanup` 5,0 s (as demais, milissegundos). O
+protocolo ocupa ~9% do tempo; o resto é preparar e desmontar o cenário. O
+pacote capturado no PCAP tem horário entre o `started_at` e o `ended_at` do
+sender, o que confirma que testbed e PCAP usam a mesma base de tempo.
+
 **Onde.** `scripts/testbed/timing.py` (classe `Timeline`), `scripts/run.py`
 (uma chamada `timeline.start(...)` por fase; `timing.json` gravado no
 `finally`), `scripts/testbed/runner.py` (instantes de cada processo).

@@ -82,7 +82,7 @@ def main() -> int:
         summary = write_outputs(config, protocol_result, capture_result)
 
         if summary["status"] == "success":
-            print("Experiment completed successfully.")
+            print("Experiment completed successfully.", flush=True)
             return 0
 
         print(f"Experiment completed with {summary['status']} status:", file=sys.stderr)
