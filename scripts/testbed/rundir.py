@@ -15,6 +15,7 @@ RUN_FILES = {
     "csv": "metrics.csv",
     "summary": "summary.json",
     "timing": "timing.json",
+    "metadata": "metadata.json",
 }
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 

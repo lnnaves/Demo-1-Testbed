@@ -134,7 +134,8 @@ fim-a-fim; entrega/perda; mobilidade.
   Suíte: 175 testes OK. Confirmado no host: total 28,4 s = prepare_host 3,4 +
   build_network 7,3 + wait_network 10,2 + execute_protocol 2,5 + cleanup 5,0;
   pacote do PCAP cai entre started_at/ended_at do sender (mesma base de tempo).
-- Próximo na semana 2: metadados; depois PCAP por nó + filtro.
+- Metadados implementados (D11): `metadata.json`. Suíte 181 OK. Aguarda host.
+- Próximo na semana 2: PCAP por nó + filtro.
 
 ## Pendências fora do plano semanal
 
@@ -162,7 +163,7 @@ fim-a-fim; entrega/perda; mobilidade.
 
 ### Semana 2 — saídas e tempo
 - [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
-- [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
+- [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds (implementado; aguarda host)
 - [x] Tempos: experimento, cada fase, cada processo
 - [ ] PCAP por participante (sender e receivers) + filtro configurável
 

@@ -38,10 +38,20 @@ class RunMainTests(unittest.TestCase):
         wait_patch = patch("run.wait_for_network", return_value=0.0)
         rundir_patch = patch(
             "run.prepare_run_directory",
-            return_value={"directory": "/runs/exp/2026-11-05_10-00-00", "timing": "/runs/exp/2026-11-05_10-00-00/timing.json"},
+            return_value={
+                "directory": "/runs/exp/2026-11-05_10-00-00",
+                "timing": "/runs/exp/2026-11-05_10-00-00/timing.json",
+                "metadata": "/runs/exp/2026-11-05_10-00-00/metadata.json",
+            },
         )
         self.mock_prepare_run_directory = rundir_patch.start()
         self.addCleanup(rundir_patch.stop)
+        metadata_patch = patch("run.collect_metadata", return_value={})
+        metadata_patch.start()
+        self.addCleanup(metadata_patch.stop)
+        write_metadata_patch = patch("run.write_metadata")
+        self.mock_write_metadata = write_metadata_patch.start()
+        self.addCleanup(write_metadata_patch.stop)
         timing_patch = patch("run._write_timing")
         self.mock_write_timing = timing_patch.start()
         self.addCleanup(timing_patch.stop)
@@ -210,8 +220,9 @@ class RunMainTests(unittest.TestCase):
             run.main()
 
         self.assertEqual(self.mock_write_timing.call_args.args[0], "/runs/exp/2026-11-05_10-00-00/timing.json")
+        self.assertEqual(self.mock_write_metadata.call_args.args[0], "/runs/exp/2026-11-05_10-00-00/metadata.json")
         self.assertEqual(self._phases(), [
-            ("load_config", "ok"), ("prepare_output", "ok"), ("prepare_host", "ok"),
+            ("load_config", "ok"), ("prepare_output", "ok"), ("collect_metadata", "ok"), ("prepare_host", "ok"),
             ("build_network", "ok"), ("wait_network", "ok"), ("start_capture", "ok"),
             ("execute_protocol", "ok"), ("stop_capture", "ok"), ("write_outputs", "ok"),
             ("cleanup", "ok"),

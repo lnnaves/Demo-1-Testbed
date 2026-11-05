@@ -198,6 +198,10 @@ que falha antes do fim deixa ao menos o `config.yml`.
 - **`config.yml`**: cópia exata do config usado;
 - **`capture.pcap`**: tráfego capturado no nó sender;
 - **`metrics.csv`**: uma linha com as métricas acima;
+- **`metadata.json`**: commit do testbed (e alterações não commitadas),
+  sha256 dos binários, id das imagens Docker, kernel, versão do BATMAN-adv,
+  versões de Mininet-WiFi/Containernet/Python, comando e usuário, e o aviso de
+  que o fading do wmediumd não tem semente controlável;
 - **`timing.json`**: início, fim, duração e status do experimento e de cada
   fase (de `load_config` a `cleanup`), gravado por último, inclusive em
   execuções que falham. Instantes em segundos Unix (mesma base do PCAP) e em

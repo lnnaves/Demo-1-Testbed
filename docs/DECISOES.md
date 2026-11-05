@@ -338,3 +338,43 @@ sender, o que confirma que testbed e PCAP usam a mesma base de tempo.
 **Onde.** `scripts/testbed/timing.py` (classe `Timeline`), `scripts/run.py`
 (uma chamada `timeline.start(...)` por fase; `timing.json` gravado no
 `finally`), `scripts/testbed/runner.py` (instantes de cada processo).
+
+---
+
+## D11. Metadados de cada execução (05/11/2026)
+
+**Contexto: quando surgiu.** Terceiro item da semana 2. O `config.yml`
+copiado em cada pasta registra o cenário, mas não as versões do que rodou.
+Exemplo do problema: em 05/11 um protocolo tem 2% de perda a 50 m e em 20/11,
+com o mesmo config, 10%. Sem saber o que mudou (protocolo, testbed, imagem,
+sistema), o resultado não pode ser explicado nem reproduzido.
+
+**Decisão.** Cada execução grava `metadata.json` na sua pasta, logo após
+criá-la (fase `collect_metadata`), com:
+
+| Campo | Responde | Por que pode mudar sem perceber |
+|---|---|---|
+| `testbed.commit`, `branch`, `uncommitted_changes`, `changed_files` | Qual código do testbed rodou | O testbed muda toda semana; alterações não commitadas ficam marcadas |
+| `binaries.<papel>.sha256` | Qual versão do protocolo rodou | O usuário troca o programa e o nome continua igual |
+| `images.<nome>.id` | Qual imagem exata foi usada | Refazer `drone:latest` muda o conteúdo, não o nome |
+| `host.kernel`, `host.batman_adv` | Qual roteamento estava ativo | Atualização do sistema muda o BATMAN |
+| `host.packages`, `python`, `hostname`, `command`, `user` | Em que ambiente rodou | Outra máquina ou instalação |
+| `randomness` | Por que os resultados variam | Ver abaixo |
+
+**Aleatoriedade (limitação registrada no próprio arquivo).** O wmediumd sorteia
+o fading e o testbed não consegue fixar essa semente. Mesmo config e mesmas
+versões garantem o mesmo cenário, **não resultados idênticos**. Por isso o
+plano prevê repetições com estatística.
+
+**Detalhes de implementação.**
+- O `run.py` roda com `sudo`, e o repositório pertence à usuária. Sem
+  `git -c safe.directory=...`, o git recusa ler o repositório ("dubious
+  ownership").
+- `uncommitted_changes` ignora arquivos não versionados (ex.:
+  `docs/Plano_execucao`), que não afetam o código executado.
+- Cada item é coletado de forma isolada: se uma ferramenta faltar, o campo
+  registra `{"error": ...}` e o experimento segue. Metadados nunca fazem uma
+  execução falhar.
+
+**Onde.** `scripts/testbed/metadata.py`; fase `collect_metadata` em
+`scripts/run.py`.

@@ -162,6 +162,7 @@ logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
     metrics.csv     métricas passivas observáveis da captura
     summary.json    resumo de processos, captura, métricas, falhas, warnings e caminhos
     timing.json     início, fim e duração do experimento e de cada fase
+    metadata.json   versões: commit do testbed, hash dos binários, imagem, kernel, BATMAN
 ```
 
 O `timing.json` é gravado por último, também quando a execução falha no meio.

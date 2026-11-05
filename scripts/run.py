@@ -8,6 +8,7 @@ import traceback
 from pathlib import Path
 
 from testbed.config import ConfigError, load_config
+from testbed.metadata import collect_metadata, write_metadata
 from testbed.metrics import start_capture, write_outputs
 from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, wait_for_network
 from testbed.rundir import DEFAULT_OUTPUT_DIR, prepare_run_directory
@@ -56,6 +57,9 @@ def main() -> int:
         phase = timeline.start("prepare_output")
         output = prepare_run_directory(config, args.output_dir)
         print(f"Run directory: {output['directory']}", file=sys.stderr)
+
+        phase = timeline.start("collect_metadata")
+        write_metadata(output["metadata"], collect_metadata(config))
 
         phase = timeline.start("prepare_host")
         cleanup_stale_environment(config)
