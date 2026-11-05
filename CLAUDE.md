@@ -42,6 +42,12 @@ fim-a-fim; entrega/perda; mobilidade.
 - Latência: casar pacotes entre PCAPs (sender × receiver) pelo hash do payload
   com `tshark` (só UDP; tshark remonta fragmentos). Relógio é compartilhado
   entre containers, timestamps são comparáveis. Broadcast: por receiver.
+- **O testbed expõe o alcance, não garante conectividade** (decidido em
+  2026-11-05). O usuário escolhe as posições para descobrir onde o protocolo
+  dele deixa de funcionar bem; o testbed registra o que aconteceu (perda,
+  latência, rotas). Não calibrar nem alterar o rádio do Mininet-WiFi. O cenário
+  padrão é só exemplo e não precisa ter multi-hop. `nodes[].range` foi removido
+  (aceito com aviso, ignorado) porque o wmediumd não o usa.
 - Mobilidade: tipos `static` e `trajectory` (waypoints no YAML ou CSV).
   Plano B/talvez A: thread do testbed interpola e chama `setPosition()`.
   Modelos aleatórios só se sobrar tempo.
@@ -74,9 +80,12 @@ fim-a-fim; entrega/perda; mobilidade.
 - **Mobilidade funciona com `setPosition()`** em `DockerSta` + wmediumd
   interference: sinal cai de -52 dBm (15 m) a -90 dBm (~60 m), rota muda para
   via relay e volta. Plano A da semana 4 validado.
-- **`range` do config não tem efeito** no modo interference. Alcance direto
-  real ~60 m (logDistance 3.5, 10 dBm, -91 dBm). Consequência: no cenário
-  padrão (0/20/40 m) **todos os nós são vizinhos diretos — não há multi-hop**.
+- **`range` não tem efeito** no modo interference: passado ao `addStation` só
+  fixa `wintf.range` (static_range); potência só mudaria via `setRange()`.
+  Alcance direto real ~60 m (logDistance 3.5, 10 dBm, -91 dBm). Sinal medido
+  (poc_200ms.log): 15 m -53..-74, 30 m -68..-82, 45 m -82..-89, 60 m -90 dBm;
+  ping falhou com enlace de ~42–57 m. No cenário padrão (0/20/40) todos são
+  vizinhos diretos (aceito: é só exemplo).
 - `batctl o` mantém a última rota durante desconexão (até o purge); ao logar
   topologia, guardar também o last-seen. Valores de sinal 0/+1/+3/-7 dBm muito
   perto de outro nó são quirk do wmediumd.
@@ -84,8 +93,12 @@ fim-a-fim; entrega/perda; mobilidade.
   aplicar na `wlan0`.
 - wmediumd tem aleatoriedade não controlável: mesma config = mesmo cenário,
   não mesmos resultados → repetições + estatística.
-- `logs/` é gravado como `nfsnobody` (provável root squash); artefatos antigos
-  em `logs/` (inclusive `unicast-demo-01/`) são de versões anteriores.
+- Arquivos de root aparecem como `nfsnobody` **só dentro do sandbox Flatpak**
+  (mapeamento de uid); no host o dono é `root` (apagar exige sudo). Não é
+  root squash. Artefatos antigos soltos em `logs/` são de versões anteriores.
+- **BATMAN DAT (Distributed ARP Table)** responde ARP localmente: no PCAP do
+  sender o ARP reply vem 8 µs após o request e o ARP nem aparece no receiver.
+  `ip neigh flush` limpa só o ARP do kernel, não o cache DAT da espera da malha.
 - `third-party/containernet/.git` aponta para repositório inexistente (inofensivo).
 
 ## Ambiente de trabalho
@@ -102,31 +115,54 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (fim de 2026-11-03)
+## Estado atual (2026-11-05)
 
-- **Semana 1 concluída e commitada** na branch `semana1-execucao-real`
-  (ainda não mergeada na `main`, nada enviado ao GitHub). Suíte: 157 testes OK.
+- **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
+  `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
+- Semana 2 (commits de 05/11) na mesma branch `semana1-execucao-real`, após o
+  merge; falta push + novo PR. **Sempre rodar `git fetch` antes de afirmar o
+  estado do GitHub** (a cópia local de `origin/*` fica desatualizada).
 - Confirmado no host: unicast e broadcast em `success`; receivers encerram com
   "Receiver finished"; "Mesh ready after 10.1s".
 - `scripts/config.yml` versionado: unicast, drone1→gcs, posições 0/20/40,
   `network_ready_timeout_seconds: 60`, `drain_seconds: 1`, BLA desligado,
   `batman_orig_interval_ms: 1000`.
-- Fora do Git: `docs/Plano_execucao` (arquivo da usuária) e `poc_*.log` (ignorados).
+- Fora do Git: `docs/Plano_execucao` (arquivo da usuária, plano semanal igual
+  ao deste arquivo) e `poc_*.log` (ignorados).
+- 2026-11-05: `range` removido (aviso se presente), README/RELATORIO_TECNICO
+  atualizados sobre alcance (confirmado no host: success, malha 10.0 s).
+- 2026-11-05: pasta por execução implementada (D9): `testbed/rundir.py`,
+  `run.py --output-dir`, bloco `output:` removido, campos desconhecidos no
+  config viram erro. Suíte: 167 testes OK. Confirmado no host (2 execuções →
+  2 pastas, config copiado idêntico, success). Arquivos são do `root`;
+  apagar exige sudo.
+- Tempos implementados (D10): `timing.json` por execução, instantes por processo,
+  espera da malha com pausa 0,2 s (D8; precisão real ~1,2 s, ver correção).
+  Suíte: 175 testes OK. Confirmado no host: total 28,4 s = prepare_host 3,4 +
+  build_network 7,3 + wait_network 10,2 + execute_protocol 2,5 + cleanup 5,0;
+  pacote do PCAP cai entre started_at/ended_at do sender (mesma base de tempo).
+- Metadados (D11) confirmados no host: commit lido sob sudo, sha256 batem,
+  BATMAN-adv 2025.5, kernel 7.0.0-42. Suíte 181 OK.
+- **Achado:** imagem `drone:latest` criada 2026-09-23 17:35 -03, antes da última
+  mudança do Dockerfile (7c9625e, 18:03 -03): pode não refletir o Dockerfile
+  atual. Sugerido rebuild (`scripts/build-docker.sh`); usuária não decidiu.
+- PCAP por participante + `capture.filter` (D12) confirmados no host. Suíte 187
+  OK. **Semana 2 concluída.** Imagem refeita (id d7f035f1…, 2026-11-05 15:35).
+- Próximo: semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
+  .551854 → no do gcs .553587 = 1,73 ms.
 
 ## Pendências fora do plano semanal
 
-- Decidir o que fazer com `range` (remover do config ou calibrar txpower/expoente
-  para o alcance bater) e ajustar o cenário padrão para ter multi-hop real
-  (espaçamento > ~60 m entre extremos e relay no meio).
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
+- Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de
+  `ping` (usado pela espera da malha; `FROM drone:latest` já tem).
+- Em aberto (D8): encurtar `ping -W` para medir a espera da malha em décimos.
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código
   (registrar `ended_by`). Ajustar junto com a semana 6.
-- Saídas com nome fixo (`exp-01-unicast-*`) mesmo em broadcast → resolvido pela
-  pasta por execução (semana 2).
 - README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
   comportamento antigo em pontos (processos, BLA, fases novas).
-- Merge/PR da branch `semana1-execucao-real`.
+- Push + PR da semana 2 (branch `semana1-execucao-real`) para a `main`.
 
 ## Plano (marcar ao concluir; cada fase fecha com execução real confirmada)
 
@@ -140,10 +176,10 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] Marco: unicast e broadcast reais em `success`
 
 ### Semana 2 — saídas e tempo
-- [ ] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
-- [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
-- [ ] Tempos: experimento, cada fase, cada processo
-- [ ] PCAP por participante (sender e receivers) + filtro configurável
+- [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
+- [x] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
+- [x] Tempos: experimento, cada fase, cada processo
+- [x] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência
 - [ ] Casamento de pacotes por hash (tshark) → latência por pacote (CSV),
@@ -168,6 +204,15 @@ protocolo (MET-07), CPU/memória, netem, topologias geradas, README em inglês,
 CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 
 ## Referências
+
+- `docs/PROMPT_RETOMADA.md`: prompt para iniciar uma sessão nova (o que ler,
+  onde paramos, como trabalhar). Atualizar ao fim de cada dia.
+- `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
+
+- **`docs/DECISOES.md`: registro de decisões com explicação completa**
+  (contexto/quando surgiu, decisão, onde no código, implicações). **Toda decisão
+  nova ou explicação dada à usuária sobre o porquê de algo deve virar entrada
+  nesse arquivo antes de seguir** — ela precisa disso depois.
 
 - Doc de requisitos da usuária (IDs MOB-, MET-, MEL-, PRA-, AUT-, COMP-): base
   do plano; análise já feita e incorporada acima (MEL-03, MEL-05, MEL-07 e

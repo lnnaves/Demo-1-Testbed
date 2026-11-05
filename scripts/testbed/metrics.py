@@ -74,12 +74,23 @@ def analyze_pcap(pcap_path: str, port: int) -> dict[str, Any]:
 
 
 class Capture:
-    def __init__(self, node: Any, node_name: str, interface: str, port: int, pcap_path: str):
+    def __init__(
+        self,
+        node: Any,
+        node_name: str,
+        interface: str,
+        port: int,
+        pcap_path: str,
+        bpf_filter: str | None = None,
+    ):
         self.node = node
         self.node_name = node_name
         self.interface = interface
         self.port = port
         self.pcap_path = str(pcap_path)
+        # None captures every packet on the interface; the protocol port is
+        # only applied later, when the PCAP is analysed.
+        self.bpf_filter = bpf_filter
         self.process: Any | None = None
         self._pcap_file: Any | None = None
         self.started_at: float | None = None
@@ -96,7 +107,8 @@ class Capture:
             self.process = subprocess.Popen(
                 [
                     "nsenter", "-t", str(self.node.pid), "-n",
-                    "tcpdump", "-i", self.interface, "-w", "-", "udp", "port", str(self.port),
+                    "tcpdump", "-i", self.interface, "-w", "-",
+                    *([self.bpf_filter] if self.bpf_filter else []),
                 ],
                 stdout=self._pcap_file,
                 stderr=subprocess.PIPE,
@@ -116,6 +128,7 @@ class Capture:
             "node": self.node_name,
             "interface": self.interface,
             "port": self.port,
+            "filter": self.bpf_filter,
             "started": self.process is not None,
             "exit_code": None,
             "stderr": "",
@@ -152,7 +165,8 @@ class Capture:
         result["packet_count"] = analysis["packet_count"]
         result["metrics"] = analysis
         if unexpected_exit:
-            result["error"] = f"tcpdump exited unexpectedly with code {result['exit_code']}"
+            detail = result["stderr"].strip()
+            result["error"] = f"tcpdump exited unexpectedly with code {result['exit_code']}" + (f": {detail}" if detail else "")
         elif not analysis["valid"]:
             result["error"] = analysis["error"]
         else:
@@ -162,15 +176,79 @@ class Capture:
         return result
 
 
-def start_capture(config: dict[str, Any], nodes: dict[str, Any]) -> Capture:
-    sender = config["protocol"]["sender"]
-    return Capture(
-        nodes[sender],
-        sender,
-        config["wireless"]["interface"],
-        config["protocol"]["port"],
-        config["output"]["pcap"],
-    ).start()
+# A tcpdump that dies right away (e.g. invalid filter) is reported at start,
+# before the protocol runs, instead of as an empty capture at the end.
+_CAPTURE_STARTUP_CHECK_SECONDS = 0.5
+
+
+def capture_participants(config: dict[str, Any]) -> list[str]:
+    """Nodes that get their own PCAP: the sender, then every receiver."""
+    protocol = config["protocol"]
+    return [protocol["sender"], *protocol["receivers"]]
+
+
+class CaptureSet:
+    """One Capture per participant; metrics come from the sender's PCAP."""
+
+    def __init__(self, captures: dict[str, Capture], sender: str, bpf_filter: str | None):
+        self.captures = captures
+        self.sender = sender
+        self.bpf_filter = bpf_filter
+        self._result: dict[str, Any] | None = None
+
+    def start(self) -> "CaptureSet":
+        try:
+            for capture in self.captures.values():
+                capture.start()
+            time.sleep(_CAPTURE_STARTUP_CHECK_SECONDS)
+            dead = [name for name, capture in self.captures.items() if capture.process.poll() is not None]
+            if dead:
+                results = self.stop(timeout=1.0)["nodes"]
+                details = "; ".join(f"{name}: {results[name]['error']}" for name in dead)
+                raise RuntimeError(f"capture failed to start ({details})")
+        except Exception:
+            self.stop(timeout=1.0)
+            raise
+        return self
+
+    def stop(self, timeout: float = 5.0) -> dict[str, Any]:
+        if self._result is not None:
+            return self._result
+        nodes = {name: capture.stop(timeout) for name, capture in self.captures.items()}
+        sender = nodes[self.sender]
+        errors = [f"{name}: {result['error']}" for name, result in nodes.items() if not result["valid"]]
+        self._result = {
+            # Top-level fields describe the sender's capture, which feeds the
+            # metrics; "nodes" holds every participant's capture.
+            "node": self.sender,
+            "pcap": sender["pcap"],
+            "interface": sender["interface"],
+            "port": sender["port"],
+            "filter": self.bpf_filter,
+            "started": all(result["started"] for result in nodes.values()),
+            "valid": not errors,
+            "error": "; ".join(errors) or None,
+            "packet_count": sender["packet_count"],
+            "metrics": sender.get("metrics", {}),
+            "nodes": nodes,
+        }
+        return self._result
+
+
+def start_capture(config: dict[str, Any], nodes: dict[str, Any]) -> CaptureSet:
+    bpf_filter = config["capture"]["filter"]
+    captures = {
+        name: Capture(
+            nodes[name],
+            name,
+            config["wireless"]["interface"],
+            config["protocol"]["port"],
+            config["output"]["pcaps"][name],
+            bpf_filter,
+        )
+        for name in capture_participants(config)
+    }
+    return CaptureSet(captures, config["protocol"]["sender"], bpf_filter).start()
 
 
 def _csv_value(value: float | int | None) -> str:

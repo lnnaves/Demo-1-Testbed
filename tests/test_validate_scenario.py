@@ -38,12 +38,16 @@ def _config(mode="unicast", receivers=None):
 def _summary(tmp, mode="unicast", receivers=None):
     receivers = receivers or ["gcs"]
     outputs = {
-        "pcap": str(Path(tmp) / f"{mode}.pcap"),
+        "config": str(Path(tmp) / "config.yml"),
         "csv": str(Path(tmp) / f"{mode}.csv"),
         "summary": str(Path(tmp) / f"{mode}-summary.json"),
+        "timing": str(Path(tmp) / "timing.json"),
+        "metadata": str(Path(tmp) / "metadata.json"),
     }
-    for path in outputs.values():
-        Path(path).write_bytes(b"x")
+    outputs["pcaps"] = {node: str(Path(tmp) / f"capture-{node}.pcap") for node in ["drone1", *receivers]}
+    for path in [*outputs.values(), *outputs["pcaps"].values()]:
+        if isinstance(path, str):
+            Path(path).write_bytes(b"x")
     destination = "192.168.123.255" if mode == "broadcast" else "192.168.123.1"
     return {
         "mode": mode,
@@ -165,6 +169,14 @@ class ValidateScenarioTests(unittest.TestCase):
 
         self.assertTrue(any("capture was not started" in error for error in errors))
 
+    def test_validate_summary_requires_one_pcap_per_participant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp, mode="broadcast", receivers=["gcs", "drone2"])
+            del summary["outputs"]["pcaps"]["drone2"]
+            errors = validate_scenario.validate_summary(_config(mode="broadcast", receivers=["gcs", "drone2"]), summary)
+
+        self.assertTrue(any("PCAPs are for" in error for error in errors))
+
     def test_validate_summary_rejects_missing_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             summary = _summary(tmp)
@@ -189,7 +201,8 @@ class ValidateScenarioTests(unittest.TestCase):
              patch("validate_scenario._docker_is_functional", return_value=True), \
              patch("validate_scenario._imports_are_available", return_value=True), \
              patch("validate_scenario._batman_adv_is_available", return_value=True), \
-             patch("validate_scenario._docker_image_exists", return_value=True) as image_mock:
+             patch("validate_scenario._docker_image_exists", return_value=True) as image_mock, \
+             patch("validate_scenario._output_problems", return_value=[]):
             missing = validate_scenario.check_prerequisites(config)
 
         self.assertEqual(missing, [])
@@ -221,11 +234,7 @@ class ValidateScenarioTests(unittest.TestCase):
 
     def test_run_scenario_invokes_run_py_exactly_once_with_the_selected_config_path(self):
         config = _config(mode="unicast")
-        config["output"] = {
-            "pcap": str(Path("/tmp/logs/exp-unicast.pcap")),
-            "csv": str(Path("/tmp/logs/exp-unicast.csv")),
-            "summary": str(Path("/tmp/logs/exp-unicast-summary.json")),
-        }
+        config["experiment"] = {"id": "exp-unicast"}
         completed = MagicMock(returncode=1, stdout="out", stderr="err")
         config_path = Path("/tmp/config.yml")
 
@@ -239,6 +248,40 @@ class ValidateScenarioTests(unittest.TestCase):
         run_mock.assert_called_once()
         command = run_mock.call_args[0][0]
         self.assertEqual(command[-1], str(config_path))
+
+    def test_run_scenario_reads_the_summary_of_the_run_directory_it_created(self):
+        config = _config(mode="unicast")
+        config["experiment"] = {"id": "exp-x"}
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "exp-x" / "2026-01-01_00-00-00").mkdir(parents=True)  # older run, must be ignored
+
+            def fake_run(command, **kwargs):
+                self.assertEqual(command[command.index("--output-dir") + 1], str(base))
+                run_dir = base / "exp-x" / "2026-11-05_10-00-00"
+                run_dir.mkdir()
+                summary = _summary(run_dir)
+                (run_dir / "summary.json").write_text(validate_scenario.json.dumps(summary), encoding="utf-8")
+                return MagicMock(returncode=0, stdout="", stderr="")
+
+            with patch("validate_scenario.load_config", return_value=config), \
+                 patch("validate_scenario._run", side_effect=fake_run), \
+                 patch("validate_scenario.check_cleanup", return_value=[]):
+                ok, message = validate_scenario.run_scenario(Path("/tmp/config.yml"), base)
+
+        self.assertTrue(ok, message)
+        self.assertIn("PASSOU", message)
+
+    def test_run_scenario_fails_when_no_run_directory_was_created(self):
+        config = _config(mode="unicast")
+        config["experiment"] = {"id": "exp-x"}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("validate_scenario.load_config", return_value=config), \
+             patch("validate_scenario._run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
+            ok, message = validate_scenario.run_scenario(Path("/tmp/config.yml"), Path(tmp))
+
+        self.assertFalse(ok)
+        self.assertIn("encontradas 0", message)
 
     def test_validation_reuses_the_runner_destination_rule(self):
         from testbed.runner import select_destination

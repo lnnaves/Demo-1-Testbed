@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from testbed.config import ConfigError, load_config
+from testbed.rundir import DEFAULT_OUTPUT_DIR, RUN_FILES
 from testbed.runner import select_destination
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -81,20 +82,14 @@ def _configured_images(config: dict[str, Any] | None) -> list[str]:
     return sorted({node["image"] for node in config["nodes"].values()})
 
 
-def _output_problems(config: dict[str, Any] | None) -> list[str]:
-    if config is None:
-        return []
-    problems: list[str] = []
-    for key, value in config["output"].items():
-        directory = Path(value).parent
-        try:
-            directory.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            problems.append(f"output directory for {key} cannot be created: {directory}: {exc}")
-            continue
-        if not os.access(directory, os.W_OK):
-            problems.append(f"output directory for {key} is not writable: {directory}")
-    return problems
+def _output_problems(output_dir: Path = DEFAULT_OUTPUT_DIR) -> list[str]:
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return [f"output directory cannot be created: {output_dir}: {exc}"]
+    if not os.access(output_dir, os.W_OK):
+        return [f"output directory is not writable: {output_dir}"]
+    return []
 
 
 def check_prerequisites(config: dict[str, Any] | None = None) -> list[str]:
@@ -112,7 +107,7 @@ def check_prerequisites(config: dict[str, Any] | None = None) -> list[str]:
     for image in _configured_images(config):
         if not _docker_image_exists(image):
             missing.append(f"Docker image is missing: {image}")
-    missing.extend(_output_problems(config))
+    missing.extend(_output_problems())
     return missing
 
 
@@ -204,8 +199,14 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
         errors.append(f"capture packet_count is {metrics.get('packet_count')!r}, expected a positive integer")
 
     outputs = summary.get("outputs") or {}
-    for key in ("pcap", "csv", "summary"):
+    for key in ("config", "csv", "summary", "timing", "metadata"):
         _assert_file_readable(outputs.get(key, ""), errors)
+    pcaps = outputs.get("pcaps") or {}
+    expected_pcaps = [protocol["sender"], *expected_receivers]
+    if sorted(pcaps) != sorted(expected_pcaps):
+        errors.append(f"PCAPs are for {sorted(pcaps)!r}, expected {sorted(expected_pcaps)!r}")
+    for path in pcaps.values():
+        _assert_file_readable(path, errors)
 
     return errors
 
@@ -247,14 +248,24 @@ def check_cleanup(config: dict[str, Any]) -> list[str]:
     return errors
 
 
-def run_scenario(config_path: Path) -> tuple[bool, str]:
+def _run_directories(experiment_dir: Path) -> set[Path]:
+    if not experiment_dir.is_dir():
+        return set()
+    return {path for path in experiment_dir.iterdir() if path.is_dir()}
+
+
+def run_scenario(config_path: Path, output_dir: Path = DEFAULT_OUTPUT_DIR) -> tuple[bool, str]:
     try:
         config = load_config(config_path)
     except ConfigError as exc:
         return False, f"FALHOU - configuração inválida: {exc}"
 
     mode = config["protocol"]["mode"]
-    command = [sys.executable, str(RUN_SCRIPT), str(config_path)]
+    # The run directory is named by run.py at start time; it is identified as
+    # the single directory that did not exist before this execution.
+    experiment_dir = Path(output_dir).resolve() / config["experiment"]["id"]
+    before = _run_directories(experiment_dir)
+    command = [sys.executable, str(RUN_SCRIPT), "--output-dir", str(output_dir), str(config_path)]
     result = _run(command, cwd=PROJECT_ROOT)
     if result.returncode != 0:
         return False, (
@@ -263,7 +274,10 @@ def run_scenario(config_path: Path) -> tuple[bool, str]:
             f"stderr:\n{result.stderr}"
         )
 
-    summary_path = Path(config["output"]["summary"])
+    created = sorted(_run_directories(experiment_dir) - before)
+    if len(created) != 1:
+        return False, f"{mode}: FALHOU - esperada 1 pasta nova em {experiment_dir}, encontradas {len(created)}"
+    summary_path = created[0] / RUN_FILES["summary"]
     try:
         summary = _load_json(summary_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:

@@ -22,6 +22,10 @@ wireless:
   fading_coefficient: 3
   propagation_model: logDistance
   propagation_exponent: 3.5
+  # There is no fixed range per node: reachability follows from txpower, the
+  # propagation model and noise_threshold_dbm. With these values (10 dBm,
+  # logDistance 3.5, -91 dBm) the direct link fades out around 60 m. Place the
+  # nodes at the distances you want to evaluate.
   subnet: 192.168.123.0/24
   broadcast_ip: 192.168.123.255
   interface: bat0
@@ -40,7 +44,6 @@ nodes:
     image: drone:latest
     memory: 512m
     txpower: 10
-    range: 25
   - id: drone1
     container_name: dr1
     ip: 192.168.123.2/24
@@ -48,7 +51,6 @@ nodes:
     image: drone:latest
     memory: 512m
     txpower: 10
-    range: 25
   - id: drone2
     container_name: dr2
     ip: 192.168.123.3/24
@@ -56,13 +58,16 @@ nodes:
     image: drone:latest
     memory: 512m
     txpower: 10
-    range: 25
+
+# One PCAP per participant (sender and each receiver), on wireless.interface.
+# Without a filter every packet is captured; metrics still look only at UDP on
+# protocol.port. Optional tcpdump (BPF) filter, e.g. "udp port 5000":
+capture:
+  filter: ""
 
 binaries:
   sender: bin/sender
   receiver: bin/receiver
 
-output:
-  pcap: logs/exp-01-unicast.pcap
-  csv: logs/exp-01-unicast.csv
-  summary: logs/exp-01-unicast-summary.json
+# Results are not configured here: each run writes to
+# logs/<experiment.id>/<date-time>/ (base directory: scripts/run.py --output-dir).

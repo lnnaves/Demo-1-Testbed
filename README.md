@@ -50,6 +50,27 @@ protocol:
     - gcs            # broadcast aceita vários receivers
 ```
 
+## Validação do config
+
+O config é validado por completo antes de qualquer execução. Campos
+desconhecidos são erro, inclusive erros de digitação: com `postion:` no lugar
+de `position:`, a execução para com
+`configuration error: nodes[0]: unknown field 'postion'`, em vez de rodar com
+o valor padrão sem avisar.
+
+## Alcance do rádio e posições
+
+Não existe um alcance fixo por nó. O sinal entre dois nós é calculado pelo
+emulador a partir de `txpower`, do modelo de propagação
+(`wireless.propagation_model`/`propagation_exponent`) e da distância; abaixo de
+`wireless.noise_threshold_dbm` os nós não se ouvem. Com os valores padrão, o
+enlace direto vai até cerca de 60 m e a qualidade cai bem antes disso.
+
+O testbed não garante conectividade: posicione os nós (`nodes[].position`) nas
+distâncias que deseja avaliar para observar a partir de que ponto o seu
+protocolo deixa de funcionar bem. Se nenhum caminho existir, a execução falha
+na espera da malha com `network not ready`.
+
 ## Integração do protocolo
 
 Os arquivos `bin/sender` e `bin/receiver` são **modelos mínimos substituíveis**.
@@ -99,7 +120,7 @@ integra a implementação.
 
 ## Execução e validação
 
-Ajuste `scripts/config.yml` (nós, IPs, WiFi, `protocol.mode`, porta e saídas) e
+Ajuste `scripts/config.yml` (nós, IPs, WiFi, `protocol.mode` e porta) e
 execute o modo configurado:
 
 ```bash
@@ -132,12 +153,35 @@ corretamente; não significa que qualquer protocolo foi validado semanticamente.
 
 ## Saídas
 
-As saídas padrão são gravadas em `logs/` e não são versionadas:
+Cada execução grava numa pasta própria, que nunca é sobrescrita:
 
-- PCAP: tráfego capturado no sender;
-- CSV: métricas passivas observáveis da captura;
-- `summary.json`: resumo operacional de processos, captura, métricas, falhas,
-  warnings e caminhos.
+```text
+logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
+    config.yml      cópia exata da configuração usada
+    capture-<nó>.pcap  um PCAP por participante (sender e cada receiver)
+    metrics.csv     métricas passivas observáveis da captura
+    summary.json    resumo de processos, captura, métricas, falhas, warnings e caminhos
+    timing.json     início, fim e duração do experimento e de cada fase
+    metadata.json   versões: commit do testbed, hash dos binários, imagem, kernel, BATMAN
+```
+
+Por padrão a captura grava todo o tráfego da interface do protocolo (`bat0`).
+Um filtro do tcpdump pode ser definido em `capture.filter` (ex.:
+`"udp port 5000"`); vazio captura tudo. As métricas do `metrics.csv` vêm do
+PCAP do sender e consideram só UDP na porta do protocolo.
+
+O `timing.json` é gravado por último, também quando a execução falha no meio.
+Os instantes estão em segundos Unix (`started_at`), a mesma base dos
+timestamps do PCAP, e também em hora local legível (`started_at_local`).
+
+O caminho da pasta é impresso no início (`Run directory: ...`). A pasta base
+`logs/` pode ser trocada na hora de rodar, sem editar o config:
+
+```bash
+sudo python3 scripts/run.py --output-dir /outro/lugar
+```
+
+Os resultados não são versionados.
 
 Campos das métricas: `packet_count`, `first_timestamp_seconds`,
 `last_timestamp_seconds`, `observed_duration_seconds`, `interval_mean_seconds`,

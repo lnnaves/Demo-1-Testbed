@@ -63,13 +63,20 @@ Blocos existentes hoje:
   `broadcast_ip`, `interface` (`bat0`), `batman_bridge_loop_avoidance`
   (padrão `false`), `batman_orig_interval_ms` (padrão 1000);
 - `nodes`: lista com `id`, `container_name`, `ip`, `position`, `image`,
-  `memory`, `txpower`, `range`;
-- `binaries`: `sender` e `receiver` (caminhos sob `bin/`);
-- `output`: `pcap`, `csv`, `summary`.
+  `memory`, `txpower`;
+- `binaries`: `sender` e `receiver` (caminhos sob `bin/`).
 
-Cenário padrão: `gcs` (192.168.123.1), `drone1` (192.168.123.2) e `drone2`
-(192.168.123.3) em linha, com alcance de 25 m e espaçamento de 25 m, o que
-produz um caminho multi-hop real entre os extremos.
+Qualquer outro campo, em qualquer seção, é rejeitado com
+`<seção>: unknown field '<nome>'`, inclusive campos removidos como `range` e
+`output` (ver `docs/DECISOES.md`, D9). Os resultados não são configurados no
+YAML: cada execução grava em `<--output-dir>/<experiment.id>/<data-hora>/`.
+
+Cenário padrão (apenas um exemplo): `gcs` (192.168.123.1), `drone1`
+(192.168.123.2) e `drone2` (192.168.123.3) em linha, em 0, 20 e 40 m. Com os
+parâmetros de rádio padrão o enlace direto vai até ~60 m, então nesse exemplo
+todos os nós são vizinhos diretos. O testbed não garante conectividade nem
+multi-hop: o usuário posiciona os nós nas distâncias que quer avaliar e observa
+o resultado.
 
 ### Validações aplicadas por `config.py`
 
@@ -91,8 +98,15 @@ produz um caminho multi-hop real entre os extremos.
 
 `network.py` cria uma `Containernet` com `wmediumd` em modo `interference` e
 modelo de propagação configurável. Cada nó é uma `DockerSta` privilegiada, com
-imagem, limite de memória, posição, alcance e potência definidos no YAML, e com
+imagem, limite de memória, posição e potência definidos no YAML, e com
 `bin/` montado em `/opt/protocol/bin:ro`.
+
+Não existe alcance fixo por nó. No modo interference o wmediumd calcula o
+sinal de cada par de nós a partir de `txpower`, do modelo de propagação e da
+distância, e descarta o que fica abaixo de `noise_threshold_dbm`. Medido com
+os valores padrão (10 dBm, logDistance 3.5, -91 dBm, fading 3): ~-53 a -74 dBm
+a 15 m, ~-68 a -82 dBm a 30 m, ~-82 a -89 dBm a 45 m e ~-90 dBm a 60 m. Por
+isso o parâmetro `range` do Mininet-WiFi não é repassado.
 
 Os links são `adhoc` com `proto="batman_adv"`, ou seja, o próprio Mininet-WiFi
 é o dono do ciclo de vida do BATMAN-adv. Após `net.start()`, o testbed apenas
@@ -112,7 +126,8 @@ Antes de montar a rede, o testbed executa `mn -c` e remove containers
 Mininet-WiFi não remove containers Docker).
 
 Depois da atribuição de IPs, a fase `wait_network` espera a malha BATMAN-adv
-convergir: o sender faz `ping` para cada receiver, uma vez por segundo, até
+convergir: o sender faz `ping` para cada receiver (espera de até 1 s pela resposta e
+pausa de 0,2 s entre tentativas), até
 todos responderem ou até `network_ready_timeout_seconds`. Em caso de timeout a
 execução falha com `network not ready: <sender> could not reach <receiver>`.
 Quando a malha está pronta, o cache ARP (`ip neigh flush`) de todos os nós é
@@ -150,9 +165,12 @@ recebe `--mode` nem `--count`.
 
 ## 7. Captura e métricas
 
-`metrics.py` inicia `tcpdump -i <interface> -w - udp port <porta>` no host,
-dentro do namespace de rede do nó sender (`nsenter -t <pid> -n`), antes de os
-processos começarem, e grava diretamente o PCAP configurado. O `popen` do
+`metrics.py` inicia um `tcpdump -i <interface> -w - [<capture.filter>]` por
+participante (sender e cada receiver), no host, dentro do namespace de rede do
+nó (`nsenter -t <pid> -n`), antes de os processos começarem. Sem filtro, todo o
+tráfego da interface é gravado. Meio segundo após iniciar, um tcpdump que já
+morreu (ex.: filtro inválido) faz a execução falhar antes do protocolo. As
+métricas abaixo vêm do PCAP do sender, lido com o filtro `udp port <porta>`. O `popen` do
 Containernet não é usado porque o `docker exec -t` aloca um TTY que corrompe a
 saída binária e não repassa o `SIGINT` ao tcpdump. Na
 parada, envia `SIGINT` (com fallback `terminate`/`kill`) e reanalisa o arquivo
@@ -174,9 +192,26 @@ receivers. A captura desta versão filtra **UDP na porta configurada**.
 
 ## 8. Artefatos
 
-- **PCAP**: tráfego capturado no nó sender;
-- **CSV**: uma linha com as métricas acima;
-- **JSON** (`summary`): `experiment`, `mode`, `status`, `process_status`,
+Gravados por `scripts/testbed/rundir.py` em
+`<--output-dir, padrão logs/>/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/`, com
+sufixo `-2`, `-3`... se duas execuções começarem no mesmo segundo. A pasta é
+criada logo após a leitura do config (fase `prepare_output`), e uma execução
+que falha antes do fim deixa ao menos o `config.yml`.
+
+- **`config.yml`**: cópia exata do config usado;
+- **`capture-<nó>.pcap`**: um por participante (sender e cada receiver),
+  com todo o tráfego da interface ou com o filtro de `capture.filter`;
+- **`metrics.csv`**: uma linha com as métricas acima;
+- **`metadata.json`**: commit do testbed (e alterações não commitadas),
+  sha256 dos binários, id das imagens Docker, kernel, versão do BATMAN-adv,
+  versões de Mininet-WiFi/Containernet/Python, comando e usuário, e o aviso de
+  que o fading do wmediumd não tem semente controlável;
+- **`timing.json`**: início, fim, duração e status do experimento e de cada
+  fase (de `load_config` a `cleanup`), gravado por último, inclusive em
+  execuções que falham. Instantes em segundos Unix (mesma base do PCAP) e em
+  hora local; durações pelo relógio monotônico. Os processos no
+  `summary.json` também trazem `started_at`/`ended_at`;
+- **`summary.json`**: `experiment`, `mode`, `status`, `process_status`,
   `capture_status`, `traffic_status`, `sender`, `receivers`, `capture`,
   `metrics`, `failures`, `warnings`, `outputs`.
 

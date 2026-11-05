@@ -6,23 +6,78 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from scripts.testbed.metrics import Capture, analyze_pcap, start_capture, write_csv, write_outputs
+from scripts.testbed.metrics import Capture, CaptureSet, analyze_pcap, start_capture, write_csv, write_outputs
+
+
+def _capture_config(receivers=("gcs",), bpf_filter=None):
+    participants = ["drone1", *receivers]
+    return {
+        "protocol": {"sender": "drone1", "receivers": list(receivers), "port": 5000},
+        "wireless": {"interface": "bat0"},
+        "capture": {"filter": bpf_filter},
+        "output": {"pcaps": {name: f"/tmp/capture-{name}.pcap" for name in participants}},
+    }
+
+
+def _alive_process():
+    process = MagicMock()
+    process.poll.return_value = None
+    process.communicate.return_value = (b"", b"")
+    return process
 
 
 class MetricsTests(unittest.TestCase):
-    def test_start_capture_uses_sender_interface_and_udp_port_filter(self):
-        node = MagicMock(pid=4242)
-        config = {"protocol": {"sender": "sender", "port": 5000}, "wireless": {"interface": "bat0"},
-                  "output": {"pcap": "/tmp/capture.pcap"}}
-        with patch("scripts.testbed.metrics.open", unittest.mock.mock_open()), patch(
-            "scripts.testbed.metrics.subprocess.Popen"
-        ) as popen:
-            capture = start_capture(config, {"sender": node})
-        self.assertEqual(popen.call_args.args[0],
-                         ["nsenter", "-t", "4242", "-n",
-                          "tcpdump", "-i", "bat0", "-w", "-", "udp", "port", "5000"])
-        node.popen.assert_not_called()
-        capture.stop = MagicMock()
+    def _start(self, config, nodes):
+        with patch("scripts.testbed.metrics.open", unittest.mock.mock_open()), \
+             patch("scripts.testbed.metrics.subprocess.Popen", side_effect=lambda *a, **k: _alive_process()) as popen, \
+             patch("scripts.testbed.metrics.time.sleep"):
+            captures = start_capture(config, nodes)
+        return captures, [call.args[0] for call in popen.call_args_list]
+
+    def test_start_capture_records_every_participant_without_filter_by_default(self):
+        nodes = {"drone1": MagicMock(pid=11), "gcs": MagicMock(pid=22), "drone2": MagicMock(pid=33)}
+        captures, commands = self._start(_capture_config(receivers=("gcs", "drone2")), nodes)
+
+        self.assertEqual(commands, [
+            ["nsenter", "-t", str(pid), "-n", "tcpdump", "-i", "bat0", "-w", "-"] for pid in (11, 22, 33)
+        ])
+        self.assertEqual(sorted(captures.captures), ["drone1", "drone2", "gcs"])
+        self.assertEqual(captures.captures["gcs"].pcap_path, "/tmp/capture-gcs.pcap")
+        for node in nodes.values():
+            node.popen.assert_not_called()
+
+    def test_start_capture_applies_configured_filter_as_one_expression(self):
+        nodes = {"drone1": MagicMock(pid=11), "gcs": MagicMock(pid=22)}
+        _, commands = self._start(_capture_config(bpf_filter="udp port 5000 or icmp"), nodes)
+
+        for command in commands:
+            self.assertEqual(command[-1], "udp port 5000 or icmp")
+
+    def test_capture_that_dies_at_start_fails_before_the_protocol(self):
+        dead = MagicMock()
+        dead.poll.return_value = 1
+        dead.communicate.return_value = (b"", b"tcpdump: syntax error in filter expression")
+        processes = iter([_alive_process(), dead])
+        nodes = {"drone1": MagicMock(pid=11), "gcs": MagicMock(pid=22)}
+        with patch("scripts.testbed.metrics.open", unittest.mock.mock_open()), \
+             patch("scripts.testbed.metrics.subprocess.Popen", side_effect=lambda *a, **k: next(processes)), \
+             patch("scripts.testbed.metrics.time.sleep"), \
+             patch("scripts.testbed.metrics.analyze_pcap", return_value={"valid": True, "packet_count": 0}):
+            with self.assertRaisesRegex(RuntimeError, "gcs: tcpdump exited unexpectedly.*syntax error"):
+                start_capture(_capture_config(bpf_filter="udp prt 5000"), nodes)
+
+    def test_capture_set_reports_sender_metrics_and_every_node(self):
+        sender, receiver = MagicMock(), MagicMock()
+        sender.stop.return_value = {"pcap": "/s.pcap", "interface": "bat0", "port": 5000, "started": True,
+                                    "valid": True, "error": None, "packet_count": 3, "metrics": {"packet_count": 3}}
+        receiver.stop.return_value = {"started": True, "valid": False, "error": "PCAP is empty", "packet_count": 0}
+        result = CaptureSet({"drone1": sender, "gcs": receiver}, "drone1", None).stop()
+
+        self.assertEqual(result["packet_count"], 3)
+        self.assertEqual(result["metrics"], {"packet_count": 3})
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["error"], "gcs: PCAP is empty")
+        self.assertEqual(sorted(result["nodes"]), ["drone1", "gcs"])
 
     def test_start_failure_closes_pcap(self):
         node = MagicMock(pid=4242)

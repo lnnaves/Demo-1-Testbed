@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .network import container_popen
@@ -16,6 +16,9 @@ class ProcessRecord:
     process: Any
     started_at: float
     ended_at: float | None = None
+    # Wall-clock instants (Unix epoch seconds, same base as PCAP timestamps).
+    started_wall: float = field(default_factory=time.time)
+    ended_wall: float | None = None
     exit_code: int | None = None
     stdout: str = ""
     stderr: str = ""
@@ -23,6 +26,7 @@ class ProcessRecord:
     def finish(self, timeout: float | None = None) -> None:
         stdout, stderr = self.process.communicate(timeout=timeout)
         self.ended_at = time.monotonic()
+        self.ended_wall = time.time()
         self.exit_code = self.process.poll()
         self.stdout = _decode(stdout)
         self.stderr = _decode(stderr)
@@ -178,6 +182,8 @@ def _record_summary(record: ProcessRecord | None) -> dict[str, Any] | None:
         "stdout": record.stdout,
         "stderr": record.stderr,
         "duration_seconds": None if record.ended_at is None else record.ended_at - record.started_at,
+        "started_at": record.started_wall,
+        "ended_at": record.ended_wall,
     }
 
 
