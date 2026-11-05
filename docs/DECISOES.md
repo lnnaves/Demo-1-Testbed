@@ -81,6 +81,18 @@ funcionando**.
 - O que permanece, de propósito, são as rotas aprendidas pelo BATMAN. Esse é o
   objetivo da espera.
 
+**Correção (05/11, vista nos PCAPs da D12).** A limpeza não apaga tudo. O
+BATMAN tem um cache de ARP próprio, a DAT (Distributed ARP Table), que o
+`ip neigh flush` não limpa. No PCAP do sender, o ARP reply aparece 8 µs depois
+do request (rápido demais para ter cruzado o rádio), e o ARP nem aparece no
+PCAP do receiver: o próprio BATMAN do sender respondeu, com o que aprendeu
+durante a espera. Consequência: a primeira mensagem do protocolo não paga o
+custo de uma resolução ARP pela malha. O efeito é pequeno (frações de
+milissegundo, só no primeiro pacote), mas a afirmação "o protocolo começa como
+se os pings não tivessem acontecido" não é exata. Fica registrado; se for
+relevante para algum experimento, a DAT pode ser desligada (`batctl dat 0`) ou
+limpa.
+
 **Implicações.**
 - A imagem do usuário precisa ter o comando `ping`. Uma imagem
   `FROM drone:latest` já tem. Sem ele, a espera falha com `network not ready`.
@@ -424,6 +436,12 @@ aparecem nesses PCAPs.
 **Fora do escopo agora.** Capturar também nós que não são participantes (ex.:
 um relay). Útil para ver o multi-hop por dentro; fica para as semanas 4–5 se
 for necessário.
+
+**Confirmação real (05/11).** Dois PCAPs na pasta. No do sender
+(`capture-drone1.pcap`): ARP request, ARP reply e o pacote UDP para a porta
+5000. No do receiver (`capture-gcs.pcap`): o mesmo pacote UDP chegando
+1,73 ms depois. É a primeira evidência direta de entrega que o testbed
+registra, e uma prévia manual da latência da semana 3.
 
 **Onde.** `CaptureSet`, `capture_participants` e `start_capture` em
 `scripts/testbed/metrics.py`; caminhos em `scripts/testbed/rundir.py`;

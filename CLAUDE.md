@@ -131,8 +131,8 @@ fim-a-fim; entrega/perda; mobilidade.
 - 2026-11-05: pasta por execução implementada (D9): `testbed/rundir.py`,
   `run.py --output-dir`, bloco `output:` removido, campos desconhecidos no
   config viram erro. Suíte: 167 testes OK. Confirmado no host (2 execuções →
-  2 pastas, config copiado idêntico, success). Arquivos novos saem com dono
-  `root` (não `nfsnobody`); apagar exige sudo.
+  2 pastas, config copiado idêntico, success). Arquivos são do `root`;
+  apagar exige sudo.
 - Tempos implementados (D10): `timing.json` por execução, instantes por processo,
   espera da malha com pausa 0,2 s (D8; precisão real ~1,2 s, ver correção).
   Suíte: 175 testes OK. Confirmado no host: total 28,4 s = prepare_host 3,4 +
