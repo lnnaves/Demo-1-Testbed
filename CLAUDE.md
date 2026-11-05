@@ -134,7 +134,11 @@ fim-a-fim; entrega/perda; mobilidade.
   Suíte: 175 testes OK. Confirmado no host: total 28,4 s = prepare_host 3,4 +
   build_network 7,3 + wait_network 10,2 + execute_protocol 2,5 + cleanup 5,0;
   pacote do PCAP cai entre started_at/ended_at do sender (mesma base de tempo).
-- Metadados implementados (D11): `metadata.json`. Suíte 181 OK. Aguarda host.
+- Metadados (D11) confirmados no host: commit lido sob sudo, sha256 batem,
+  BATMAN-adv 2025.5, kernel 7.0.0-42. Suíte 181 OK.
+- **Achado:** imagem `drone:latest` criada 2026-09-23 17:35 -03, antes da última
+  mudança do Dockerfile (7c9625e, 18:03 -03): pode não refletir o Dockerfile
+  atual. Sugerido rebuild (`scripts/build-docker.sh`); usuária não decidiu.
 - Próximo na semana 2: PCAP por nó + filtro.
 
 ## Pendências fora do plano semanal
@@ -163,7 +167,7 @@ fim-a-fim; entrega/perda; mobilidade.
 
 ### Semana 2 — saídas e tempo
 - [x] Pasta por execução `logs/<experimento>/<data-hora>/` + cópia da config
-- [ ] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds (implementado; aguarda host)
+- [x] Metadados: commit, digest da imagem, sha256 dos binários, kernel, seeds
 - [x] Tempos: experimento, cada fase, cada processo
 - [ ] PCAP por participante (sender e receivers) + filtro configurável
 

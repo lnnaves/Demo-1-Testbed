@@ -378,3 +378,10 @@ plano prevê repetições com estatística.
 
 **Onde.** `scripts/testbed/metadata.py`; fase `collect_metadata` em
 `scripts/run.py`.
+
+**Confirmação real (05/11).** Commit `782a49e` lido mesmo com `sudo`; sha256
+dos binários iguais aos do `sha256sum`; BATMAN-adv 2025.5; kernel
+7.0.0-42-generic. O primeiro uso já revelou algo: a imagem `drone:latest` foi
+criada em 23/09 às 17:35, cerca de meia hora **antes** da última mudança do
+Dockerfile (commit `7c9625e`, 18:03). A imagem em uso pode não corresponder ao
+Dockerfile atual.
