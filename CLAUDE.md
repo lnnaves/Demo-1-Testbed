@@ -129,6 +129,9 @@ fim-a-fim; entrega/perda; mobilidade.
 ## Pendências fora do plano semanal
 
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
+- Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de
+  `ping` (usado pela espera da malha; `FROM drone:latest` já tem).
+- Semana 2: espera da malha passa a testar a cada ~0,2 s (DECISOES D8).
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código
   (registrar `ended_by`). Ajustar junto com a semana 6.
@@ -178,6 +181,11 @@ protocolo (MET-07), CPU/memória, netem, topologias geradas, README em inglês,
 CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 
 ## Referências
+
+- **`docs/DECISOES.md`: registro de decisões com explicação completa**
+  (contexto/quando surgiu, decisão, onde no código, implicações). **Toda decisão
+  nova ou explicação dada à usuária sobre o porquê de algo deve virar entrada
+  nesse arquivo antes de seguir** — ela precisa disso depois.
 
 - Doc de requisitos da usuária (IDs MOB-, MET-, MEL-, PRA-, AUT-, COMP-): base
   do plano; análise já feita e incorporada acima (MEL-03, MEL-05, MEL-07 e
