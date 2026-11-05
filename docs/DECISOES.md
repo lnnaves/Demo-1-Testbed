@@ -114,6 +114,26 @@ sender termina, antes de parar os receivers e a captura.
 
 **Onde.** `execute_protocol` em `scripts/testbed/runner.py`.
 
+**Por que importa.** Um sender que termina não garante que seus pacotes
+chegaram: o último pode ainda estar atravessando a malha (mais ainda com um
+drone intermediário). Sem o drain, o testbed desligaria o receiver com o
+pacote a caminho, e isso apareceria como "perda" causada pelo próprio testbed.
+Para a medida de entrega/perda da semana 3, o drain precisa ser maior que a
+latência máxima esperada.
+
+**Quanto pesa (execução real de 05/11).** A fase `execute_protocol` levou
+2,5 s com os programas de exemplo (`bin/sender` envia um único pacote UDP de
+1 byte e termina; `bin/receiver` só escuta até ser parado):
+
+| Etapa | Tempo |
+|---|---|
+| Espera após iniciar o receiver (`receiver_startup_seconds`) | 1,0 s |
+| Sender envia e termina | 0,03 s |
+| Drain (`drain_seconds`) | 1,0 s |
+| Receiver de exemplo percebe o SIGTERM (confere a cada 0,5 s) | ~0,5 s |
+
+Ou seja, ~2 s são esperas fixas do testbed, e não trabalho do protocolo.
+
 ---
 
 ## D6. Intervalo de anúncios do BATMAN configurável (03/11/2026)
