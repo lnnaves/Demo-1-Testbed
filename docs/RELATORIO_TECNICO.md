@@ -63,9 +63,13 @@ Blocos existentes hoje:
   `broadcast_ip`, `interface` (`bat0`), `batman_bridge_loop_avoidance`
   (padrão `false`), `batman_orig_interval_ms` (padrão 1000);
 - `nodes`: lista com `id`, `container_name`, `ip`, `position`, `image`,
-  `memory`, `txpower` (um `range` antigo é aceito, mas ignorado com aviso);
-- `binaries`: `sender` e `receiver` (caminhos sob `bin/`);
-- `output`: `pcap`, `csv`, `summary`.
+  `memory`, `txpower`;
+- `binaries`: `sender` e `receiver` (caminhos sob `bin/`).
+
+Qualquer outro campo, em qualquer seção, é rejeitado com
+`<seção>: unknown field '<nome>'`, inclusive campos removidos como `range` e
+`output` (ver `docs/DECISOES.md`, D9). Os resultados não são configurados no
+YAML: cada execução grava em `<--output-dir>/<experiment.id>/<data-hora>/`.
 
 Cenário padrão (apenas um exemplo): `gcs` (192.168.123.1), `drone1`
 (192.168.123.2) e `drone2` (192.168.123.3) em linha, em 0, 20 e 40 m. Com os
@@ -184,9 +188,16 @@ receivers. A captura desta versão filtra **UDP na porta configurada**.
 
 ## 8. Artefatos
 
-- **PCAP**: tráfego capturado no nó sender;
-- **CSV**: uma linha com as métricas acima;
-- **JSON** (`summary`): `experiment`, `mode`, `status`, `process_status`,
+Gravados por `scripts/testbed/rundir.py` em
+`<--output-dir, padrão logs/>/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/`, com
+sufixo `-2`, `-3`... se duas execuções começarem no mesmo segundo. A pasta é
+criada logo após a leitura do config (fase `prepare_output`), e uma execução
+que falha antes do fim deixa ao menos o `config.yml`.
+
+- **`config.yml`**: cópia exata do config usado;
+- **`capture.pcap`**: tráfego capturado no nó sender;
+- **`metrics.csv`**: uma linha com as métricas acima;
+- **`summary.json`**: `experiment`, `mode`, `status`, `process_status`,
   `capture_status`, `traffic_status`, `sender`, `receivers`, `capture`,
   `metrics`, `failures`, `warnings`, `outputs`.
 

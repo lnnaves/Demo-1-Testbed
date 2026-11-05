@@ -36,6 +36,9 @@ class RunMainTests(unittest.TestCase):
         # gets inert stand-ins and may inspect them.
         stale_patch = patch("run.cleanup_stale_environment")
         wait_patch = patch("run.wait_for_network", return_value=0.0)
+        rundir_patch = patch("run.prepare_run_directory", return_value={"directory": "/runs/exp/2026-11-05_10-00-00"})
+        self.mock_prepare_run_directory = rundir_patch.start()
+        self.addCleanup(rundir_patch.stop)
         self.mock_cleanup_stale = stale_patch.start()
         self.mock_wait_for_network = wait_patch.start()
         self.addCleanup(stale_patch.stop)
@@ -106,24 +109,6 @@ class RunMainTests(unittest.TestCase):
         network.stop.assert_called_once()
         capture.stop.assert_called_once()
 
-    def test_prints_config_warnings(self):
-        network = MagicMock()
-        network.nodes = {}
-        capture = MagicMock()
-        config = {**_config(), "warnings": ["nodes[0].range is ignored"]}
-
-        with patch("sys.argv", ["run.py"]), \
-             patch("run.load_config", return_value=config), \
-             patch("run.build_network", return_value=network), \
-             patch("run.start_capture", return_value=capture), \
-             patch("run.execute_protocol", return_value={"status": "success", "failures": []}), \
-             patch("run.write_outputs", return_value={"status": "success", "failures": []}), \
-             patch("run.cleanup_mininet"):
-            exit_code = run.main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("warning: nodes[0].range is ignored", self.stderr.getvalue())
-
     def test_lists_warnings_for_inconclusive_result(self):
         network = MagicMock()
         network.nodes = {}
@@ -159,6 +144,7 @@ class RunMainTests(unittest.TestCase):
              patch("run.write_outputs", return_value={"status": "success", "failures": []}) as mock_write_outputs, \
              patch("run.cleanup_mininet"):
             manager.attach_mock(mock_load_config, "load_config")
+            manager.attach_mock(self.mock_prepare_run_directory, "prepare_run_directory")
             manager.attach_mock(self.mock_cleanup_stale, "cleanup_stale_environment")
             manager.attach_mock(mock_build_network, "build_network")
             manager.attach_mock(self.mock_wait_for_network, "wait_for_network")
@@ -172,6 +158,7 @@ class RunMainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         expected_order = [
             "load_config",
+            "prepare_run_directory",
             "cleanup_stale_environment",
             "build_network",
             "wait_for_network",
@@ -182,6 +169,29 @@ class RunMainTests(unittest.TestCase):
         ]
         actual_order = [entry[0] for entry in manager.mock_calls]
         self.assertEqual(actual_order, expected_order)
+
+    def test_run_directory_uses_output_dir_option_and_is_printed(self):
+        network = MagicMock()
+        network.nodes = {}
+        config = _config()
+        with patch("sys.argv", ["run.py", "--output-dir", "/data/results"]), \
+             patch("run.load_config", return_value=config), \
+             patch("run.build_network", return_value=network), \
+             patch("run.start_capture", return_value=MagicMock()), \
+             patch("run.execute_protocol", return_value={"status": "success", "failures": []}), \
+             patch("run.write_outputs", return_value={"status": "success", "failures": []}), \
+             patch("run.cleanup_mininet"):
+            exit_code = run.main()
+
+        self.assertEqual(exit_code, 0)
+        self.mock_prepare_run_directory.assert_called_once_with(config, "/data/results")
+        self.assertIn("Run directory: /runs/exp/2026-11-05_10-00-00", self.stderr.getvalue())
+
+    def test_output_dir_defaults_to_logs(self):
+        with patch("sys.argv", ["run.py"]):
+            args = run.parse_args()
+
+        self.assertEqual(Path(args.output_dir), Path(__file__).resolve().parents[1] / "logs")
 
     def test_config_error_returns_two_without_traceback(self):
         with patch("sys.argv", ["run.py"]), \

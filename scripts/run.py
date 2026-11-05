@@ -9,6 +9,7 @@ from pathlib import Path
 from testbed.config import ConfigError, load_config
 from testbed.metrics import start_capture, write_outputs
 from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, wait_for_network
+from testbed.rundir import DEFAULT_OUTPUT_DIR, prepare_run_directory
 from testbed.runner import execute_protocol
 
 
@@ -19,6 +20,11 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         default=None,
         help="Path to the YAML configuration. Defaults to scripts/config.yml.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(DEFAULT_OUTPUT_DIR),
+        help="Base directory for results; each run goes to <dir>/<experiment.id>/<date-time>/. Defaults to logs/.",
     )
     return parser.parse_args()
 
@@ -36,8 +42,10 @@ def main() -> int:
 
     try:
         config = load_config(args.config)
-        for warning in config.get("warnings", []):
-            print(f"warning: {warning}", file=sys.stderr)
+
+        phase = "prepare_output"
+        output = prepare_run_directory(config, args.output_dir)
+        print(f"Run directory: {output['directory']}", file=sys.stderr)
 
         phase = "prepare_host"
         cleanup_stale_environment(config)

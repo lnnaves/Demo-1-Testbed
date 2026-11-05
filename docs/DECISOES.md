@@ -207,3 +207,53 @@ que respostas lentas através da malha sejam aceitas.
 **Decisão.** Opção (a), conferir a cada ~0,2 s, implementada junto com os
 tempos por fase da semana 2. A alternativa recusada era manter como está e
 anotar a precisão de ~2 s.
+
+---
+
+## D9. Uma pasta por execução; campos desconhecidos no config viram erro (05/11/2026)
+
+**Contexto: quando surgiu.** Primeiro item da semana 2. Até aqui, o bloco
+`output:` do config fixava os nomes dos arquivos (`logs/exp-01-unicast.pcap`
+etc.). Isso tinha três problemas:
+- toda execução sobrescrevia a anterior;
+- em broadcast os arquivos continuavam com "unicast" no nome;
+- não ficava registrado com qual config cada resultado foi gerado.
+
+Na mesma discussão apareceu um segundo problema: o testbed ignorava em
+silêncio qualquer campo que não conhecia. Foi o que aconteceu com o `range`
+(D7). Um erro de digitação como `postion:` também passaria despercebido, e o
+nó rodaria na posição errada sem ninguém saber.
+
+**Decisão (parte 1: resultados).**
+- Cada execução grava em `<pasta base>/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/`,
+  com nomes sempre iguais: `config.yml` (cópia exata do config usado),
+  `capture.pcap`, `metrics.csv` e `summary.json`. Duas execuções no mesmo
+  segundo recebem o sufixo `-2`, `-3`...
+- A pasta base é escolhida na hora de rodar, com
+  `scripts/run.py --output-dir <pasta>` (padrão `logs/`), e **não fica no
+  config**. O config descreve o experimento; onde guardar é uma questão da
+  máquina. Assim o mesmo config roda em outro computador sem edição, e ajuda a
+  contornar o `logs/` gravado como `nfsnobody`.
+- O bloco `output:` foi removido do config.
+- Por que nomes fixos e não configuráveis: resultados comparáveis e fáceis de
+  processar por script (ex.: ler todos os `logs/exp-01-unicast/*/summary.json`).
+  É o padrão de ferramentas como Hydra e MLflow.
+
+**Decisão (parte 2: validação estrita).**
+- Qualquer campo desconhecido no config é erro antes de rodar, por exemplo:
+  `configuration error: nodes[0]: unknown field 'postion'`.
+- Isso substitui o aviso especial do `range` criado na D7. Não há mais avisos
+  de compatibilidade.
+- Por que não avisos: eles servem quando há usuários externos com configs
+  próprios. O testbed ainda não foi lançado e o único config é o nosso. Quando
+  houver usuários externos, remover campos com um período de aviso volta a
+  fazer sentido.
+
+**Onde.** `scripts/testbed/rundir.py` (cria a pasta e copia o config),
+`scripts/testbed/config.py` (campos permitidos por seção), `scripts/run.py`
+(fase `prepare_output` e `--output-dir`), `scripts/validate_scenario.py`
+(localiza a pasta criada pela execução).
+
+**Implicação.** Uma execução que falha antes do fim deixa a pasta só com o
+`config.yml` (e o que tiver sido gerado até a falha). Isso é intencional: fica
+o registro de que a tentativa existiu e com qual config.

@@ -34,10 +34,6 @@ nodes:
 binaries:
   sender: bin/sender
   receiver: bin/receiver
-output:
-  pcap: logs/test.pcap
-  csv: logs/test.csv
-  summary: logs/summary.json
 """
 
 
@@ -79,7 +75,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["wireless"]["ssid"], "meshNet")
         self.assertEqual(loaded["wireless"]["broadcast_ip"], "192.168.123.255")
         self.assertEqual(loaded["binaries"]["sender"]["container"], "/opt/protocol/bin/sender")
-        self.assertTrue(loaded["output"]["summary"].endswith(os.path.join("logs", "summary.json")))
+        # Result paths belong to each run directory (testbed.rundir), not to the config.
+        self.assertNotIn("output", loaded)
 
     def test_network_ready_timeout_and_drain_defaults(self):
         tmp, root, config = self.make_root()
@@ -120,20 +117,23 @@ class ConfigTests(unittest.TestCase):
         with tmp:
             self.assertEqual(load_config(config, root=root)["wireless"]["batman_orig_interval_ms"], 200)
 
-    def test_node_range_is_ignored_with_a_warning(self):
-        tmp, root, config = self.make_root()
-        with tmp:
-            loaded = load_config(config, root=root)
-        self.assertEqual(loaded["warnings"], [])
-        self.assertNotIn("range", loaded["nodes"]["gcs"])
-
-        with_range = CONFIG.replace("    position: [0, 0, 0]\n", "    position: [0, 0, 0]\n    range: 25\n", 1)
-        tmp, root, config = self.make_root(with_range)
-        with tmp:
-            loaded = load_config(config, root=root)
-        self.assertNotIn("range", loaded["nodes"]["gcs"])
-        self.assertEqual(len(loaded["warnings"]), 1)
-        self.assertIn("nodes[0].range is ignored", loaded["warnings"][0])
+    def test_unknown_fields_are_rejected_in_every_section(self):
+        node_field = CONFIG.replace("    position: [0, 0, 0]\n", "    position: [0, 0, 0]\n    {field}\n", 1)
+        # Removed fields are not silently ignored.
+        self.assert_rejected(node_field.format(field="range: 25"), r"nodes\[0\]: unknown field 'range'")
+        self.assert_rejected(CONFIG + "output:\n  pcap: logs/x.pcap\n", r"config: unknown field 'output'")
+        # A typo never runs with the default value instead.
+        self.assert_rejected(node_field.format(field="postion: [50, 0, 0]"), "unknown field 'postion'")
+        self.assert_rejected(
+            CONFIG.replace("duration_seconds: 2\n", "duration_seconds: 2\n  drain_second: 3\n", 1),
+            "experiment: unknown field 'drain_second'",
+        )
+        self.assert_rejected(CONFIG.replace("  mode: unicast\n", "  mode: unicast\n  count: 3\n", 1), "protocol: unknown field 'count'")
+        self.assert_rejected(
+            CONFIG.replace("  subnet: 192.168.123.0/24\n", "  subnet: 192.168.123.0/24\n  range: 60\n  txpower: 5\n", 1),
+            "wireless: unknown fields 'range', 'txpower'",
+        )
+        self.assert_rejected(CONFIG.replace("  receiver: bin/receiver\n", "  receiver: bin/receiver\n  relay: bin/relay\n", 1), "binaries: unknown field 'relay'")
 
     def test_protocol_has_no_packet_count_contract(self):
         tmp, root, config = self.make_root()
@@ -226,7 +226,7 @@ class ConfigTests(unittest.TestCase):
     def test_rejects_invalid_structure_and_missing_required_fields(self):
         self.assert_rejected("- invalid", "config must be a mapping")
         self.assert_rejected(
-            "experiment:\n  id: exp\nprotocol: []\nwireless: {}\noutput: {}\nnodes: []\n",
+            "experiment:\n  id: exp\nprotocol: []\nwireless: {}\nnodes: []\n",
             "protocol must be a mapping",
         )
         self.assert_rejected(CONFIG.replace("receivers: [gcs]", "receivers: gcs", 1), "protocol.receivers must be a list")

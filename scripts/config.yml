@@ -63,7 +63,5 @@ binaries:
   sender: bin/sender
   receiver: bin/receiver
 
-output:
-  pcap: logs/exp-01-unicast.pcap
-  csv: logs/exp-01-unicast.csv
-  summary: logs/exp-01-unicast-summary.json
+# Results are not configured here: each run writes to
+# logs/<experiment.id>/<date-time>/ (base directory: scripts/run.py --output-dir).

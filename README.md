@@ -50,6 +50,14 @@ protocol:
     - gcs            # broadcast aceita vários receivers
 ```
 
+## Validação do config
+
+O config é validado por completo antes de qualquer execução. Campos
+desconhecidos são erro, inclusive erros de digitação: com `postion:` no lugar
+de `position:`, a execução para com
+`configuration error: nodes[0]: unknown field 'postion'`, em vez de rodar com
+o valor padrão sem avisar.
+
 ## Alcance do rádio e posições
 
 Não existe um alcance fixo por nó. O sinal entre dois nós é calculado pelo
@@ -112,7 +120,7 @@ integra a implementação.
 
 ## Execução e validação
 
-Ajuste `scripts/config.yml` (nós, IPs, WiFi, `protocol.mode`, porta e saídas) e
+Ajuste `scripts/config.yml` (nós, IPs, WiFi, `protocol.mode` e porta) e
 execute o modo configurado:
 
 ```bash
@@ -145,12 +153,24 @@ corretamente; não significa que qualquer protocolo foi validado semanticamente.
 
 ## Saídas
 
-As saídas padrão são gravadas em `logs/` e não são versionadas:
+Cada execução grava numa pasta própria, que nunca é sobrescrita:
 
-- PCAP: tráfego capturado no sender;
-- CSV: métricas passivas observáveis da captura;
-- `summary.json`: resumo operacional de processos, captura, métricas, falhas,
-  warnings e caminhos.
+```text
+logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
+    config.yml      cópia exata da configuração usada
+    capture.pcap    tráfego capturado no sender
+    metrics.csv     métricas passivas observáveis da captura
+    summary.json    resumo de processos, captura, métricas, falhas, warnings e caminhos
+```
+
+O caminho da pasta é impresso no início (`Run directory: ...`). A pasta base
+`logs/` pode ser trocada na hora de rodar, sem editar o config:
+
+```bash
+sudo python3 scripts/run.py --output-dir /outro/lugar
+```
+
+Os resultados não são versionados.
 
 Campos das métricas: `packet_count`, `first_timestamp_seconds`,
 `last_timestamp_seconds`, `observed_duration_seconds`, `interval_mean_seconds`,

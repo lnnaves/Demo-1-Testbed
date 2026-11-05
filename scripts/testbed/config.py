@@ -16,6 +16,22 @@ PROTOCOL_UNICAST = "unicast"
 PROTOCOL_BROADCAST = "broadcast"
 SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 
+# Every field the testbed understands, per section. Anything else is rejected,
+# so a typo (e.g. "postion") or a removed field never runs silently ignored.
+_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries"}
+_EXPERIMENT_FIELDS = {
+    "id", "duration_seconds", "receiver_startup_seconds", "shutdown_timeout_seconds",
+    "network_ready_timeout_seconds", "drain_seconds",
+}
+_PROTOCOL_FIELDS = {"mode", "port", "sender", "receivers"}
+_WIRELESS_FIELDS = {
+    "ssid", "mode", "channel", "ht_cap", "noise_threshold_dbm", "fading_coefficient",
+    "propagation_model", "propagation_exponent", "subnet", "broadcast_ip", "interface",
+    "batman_bridge_loop_avoidance", "batman_orig_interval_ms",
+}
+_NODE_FIELDS = {"id", "container_name", "ip", "position", "image", "memory", "txpower"}
+_BINARIES_FIELDS = {"sender", "receiver"}
+
 
 class ConfigError(ValueError):
     """Raised when scripts/config.yml is invalid."""
@@ -25,6 +41,13 @@ def _require_mapping(value: Any, path: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(f"{path} must be a mapping")
     return value
+
+
+def _reject_unknown_fields(mapping: dict[str, Any], allowed: set[str], path: str) -> None:
+    unknown = sorted(str(key) for key in mapping if key not in allowed)
+    if unknown:
+        label = "field" if len(unknown) == 1 else "fields"
+        raise ConfigError(f"{path}: unknown {label} " + ", ".join(repr(key) for key in unknown))
 
 
 def _require_string(value: Any, path: str) -> str:
@@ -113,7 +136,10 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
     experiment = _require_mapping(data.get("experiment", {}), "experiment")
     protocol = _require_mapping(data.get("protocol", {}), "protocol")
     wireless = _require_mapping(data.get("wireless", {}), "wireless")
-    output = _require_mapping(data.get("output", {}), "output")
+    _reject_unknown_fields(data, _TOP_LEVEL_FIELDS, "config")
+    _reject_unknown_fields(experiment, _EXPERIMENT_FIELDS, "experiment")
+    _reject_unknown_fields(protocol, _PROTOCOL_FIELDS, "protocol")
+    _reject_unknown_fields(wireless, _WIRELESS_FIELDS, "wireless")
 
     experiment_id = _require_string(experiment.get("id"), "experiment.id")
     if not _NODE_ID.match(experiment_id):
@@ -206,11 +232,11 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         raise ConfigError("nodes must be a non-empty list")
 
     normalized_nodes: dict[str, dict[str, Any]] = {}
-    warnings: list[str] = []
     container_names: dict[str, str] = {}
     node_ips: dict[str, str] = {}
     for index, node_data in enumerate(nodes):
         node = _require_mapping(node_data, f"nodes[{index}]")
+        _reject_unknown_fields(node, _NODE_FIELDS, f"nodes[{index}]")
         name = _require_string(node.get("id"), f"nodes[{index}].id")
         if not _NODE_ID.match(name):
             raise ConfigError(f"nodes[{index}].id contains invalid characters")
@@ -276,14 +302,6 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "memory": _require_string(node.get("memory", "512m"), f"nodes[{index}].memory"),
             "txpower": float(_require_number(node.get("txpower", 10), f"nodes[{index}].txpower")),
         }
-        if "range" in node:
-            # wmediumd (interference mode) derives reachability from txpower,
-            # the propagation model and noise_threshold_dbm; a fixed "range"
-            # is never used by it. Accepted for old configs, but ignored.
-            warnings.append(
-                f"nodes[{index}].range is ignored: the radio range follows from txpower, "
-                "wireless.propagation_model/propagation_exponent and wireless.noise_threshold_dbm"
-            )
 
     if sender not in normalized_nodes:
         raise ConfigError(f"protocol.sender references unknown node: {sender}")
@@ -292,17 +310,12 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             raise ConfigError(f"protocol.receivers[] references unknown node: {receiver}")
 
     binaries = _require_mapping(data.get("binaries", {}), "binaries")
+    _reject_unknown_fields(binaries, _BINARIES_FIELDS, "binaries")
     normalized_binaries = {
         "sender": _executable(root, binaries.get("sender", "bin/sender"), "binaries.sender"),
         "receiver": _executable(root, binaries.get("receiver", "bin/receiver"), "binaries.receiver"),
         "container_directory": CONTAINER_BIN_DIR,
         "host_directory": str((root / "bin").resolve()),
-    }
-
-    normalized_output = {
-        "pcap": str(_path_from_root(root, output.get("pcap", f"logs/{experiment_id}.pcap"), "output.pcap")),
-        "csv": str(_path_from_root(root, output.get("csv", f"logs/{experiment_id}.csv"), "output.csv")),
-        "summary": str(_path_from_root(root, output.get("summary", f"logs/{experiment_id}-summary.json"), "output.summary")),
     }
 
     return {
@@ -325,6 +338,4 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "wireless": normalized_wireless,
         "nodes": normalized_nodes,
         "binaries": normalized_binaries,
-        "output": normalized_output,
-        "warnings": warnings,
     }

@@ -123,8 +123,11 @@ fim-a-fim; entrega/perda; mobilidade.
 - Fora do Git: `docs/Plano_execucao` (arquivo da usuária, plano semanal igual
   ao deste arquivo) e `poc_*.log` (ignorados).
 - 2026-11-05: `range` removido (aviso se presente), README/RELATORIO_TECNICO
-  atualizados sobre alcance. Suíte: 159 testes OK. Próximo: semana 2, pasta por
-  execução.
+  atualizados sobre alcance (confirmado no host: success, malha 10.0 s).
+- 2026-11-05: pasta por execução implementada (D9): `testbed/rundir.py`,
+  `run.py --output-dir`, bloco `output:` removido, campos desconhecidos no
+  config viram erro. Suíte: 167 testes OK. **Aguardando execução real** para
+  marcar o checkbox.
 
 ## Pendências fora do plano semanal
 
@@ -135,8 +138,6 @@ fim-a-fim; entrega/perda; mobilidade.
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código
   (registrar `ended_by`). Ajustar junto com a semana 6.
-- Saídas com nome fixo (`exp-01-unicast-*`) mesmo em broadcast → resolvido pela
-  pasta por execução (semana 2).
 - README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
   comportamento antigo em pontos (processos, BLA, fases novas).
 - Merge/PR da branch `semana1-execucao-real`.
