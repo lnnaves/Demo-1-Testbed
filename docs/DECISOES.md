@@ -446,3 +446,55 @@ registra, e uma prévia manual da latência da semana 3.
 **Onde.** `CaptureSet`, `capture_participants` e `start_capture` em
 `scripts/testbed/metrics.py`; caminhos em `scripts/testbed/rundir.py`;
 `capture.filter` em `scripts/testbed/config.py`.
+
+---
+
+## D13. Como casar pacotes entre PCAPs (08/11/2026; EM DISCUSSÃO, nada implementado)
+
+**Contexto: quando surgiu.** Início da semana 3 (latência). Para medir latência
+e perda é preciso reconhecer, no PCAP do receiver, **o mesmo pacote** que saiu
+no PCAP do sender. O plano dizia "hash do payload com tshark". A usuária
+perguntou por que hash, se demora e se há alternativas.
+
+**Explicações dadas (08/11).**
+- **Testes automáticos × execução real.** Os 187 testes do `unittest` não usam
+  `tcpdump` real: ele é substituído por um *mock*, porque o sandbox não tem
+  tcpdump/docker/mn, a captura exige `sudo` e rede montada, e os testes
+  verificam a lógica do testbed (inclusive falhas difíceis de provocar). A
+  ferramenta real é provada nas execuções no host (`sudo python3 scripts/run.py`).
+- **Por que é preciso identificar o pacote.** Casar "1º com 1º" erra quando há
+  perda: sender envia A, B, C; B se perde; o casamento por ordem liga B a C
+  (latência inflada, perda atribuída ao pacote errado).
+- **Custo.** O casamento roda depois do experimento, lendo arquivos; não
+  altera a latência medida (instantes gravados pelo kernel na captura). Hash
+  custa microssegundos por pacote; abrir o `tshark` custa mais (fração de s).
+- **Portas e UDP.** IP = prédio, porta = apartamento. Porta de destino 5000 =
+  `protocol.port`; porta de origem (ex.: 56770) é escolhida pelo sistema. Só
+  UDP serve para casamento 1 a 1 (1 envio = 1 pacote); TCP reenvia/junta/divide;
+  ARP e ICMP não são tráfego do protocolo.
+
+**Alternativas analisadas.**
+
+| Opção | Problema |
+|---|---|
+| Casar por ordem | Erra com perda |
+| Hash do payload (plano original) | Payloads repetidos têm o mesmo hash (o `bin/sender` envia sempre `\x00`) |
+| Comparar o payload direto | Igual ao hash |
+| Testbed numerar pacotes | Proibido: altera o tráfego do protocolo |
+| **ID do cabeçalho IP** (+ IPs, portas, tamanho) | Volta a zero após 65.536 pacotes; Linux pode usar ID 0 em alguns casos (a confirmar) |
+
+**Evidência real (PCAPs de 05/11, `logs/exp-01-unicast/2026-11-05_15-39-36/`,
+decodificados com Python):** o pacote UDP `192.168.123.2:56770 → .1:5000` tem
+`IP-ID=27575` (DF ligado) **igual** no PCAP do sender e no do gcs: o BATMAN
+transporta o pacote IP sem alterar o cabeçalho.
+
+**Recomendação atual (aguardando ok da usuária).**
+- Identificar pelo ID do IP (+ IPs, portas, tamanho); hash do payload só como
+  conferência opcional. Resolve payloads repetidos.
+- Possível consequência: ler PCAPs em Python puro e dispensar o `tshark`
+  (fragmentos de um mesmo pacote compartilham o ID). Decisão da usuária.
+- Em aberto também: só a porta do config × qualquer porta UDP saindo do IP do
+  sender; nomes dos arquivos (`latency-<receiver>.csv`, bloco `latency` no
+  `summary.json`); aviso quando a latência máxima se aproxima do
+  `drain_seconds`.
+- A confirmar no host: IP-ID não nulo e crescente com vários pacotes.

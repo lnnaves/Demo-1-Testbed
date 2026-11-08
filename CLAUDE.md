@@ -115,7 +115,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (2026-11-05)
+## Estado atual (2026-11-08)
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
@@ -150,6 +150,12 @@ fim-a-fim; entrega/perda; mobilidade.
   OK. **Semana 2 concluída.** Imagem refeita (id d7f035f1…, 2026-11-05 15:35).
 - Próximo: semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
   .551854 → no do gcs .553587 = 1,73 ms.
+- **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
+  `git fetch` em 2026-11-08.
+- 2026-11-08: semana 3 em discussão, nada implementado. Ver D13: proposta de
+  casar pacotes pelo **ID do cabeçalho IP** em vez de hash do payload (mesmo
+  ID 27575 nos dois PCAPs reais); talvez dispensar `tshark` (Python puro).
+  Aguardando ok da usuária.
 
 ## Pendências fora do plano semanal
 
@@ -162,7 +168,6 @@ fim-a-fim; entrega/perda; mobilidade.
   (registrar `ended_by`). Ajustar junto com a semana 6.
 - README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
   comportamento antigo em pontos (processos, BLA, fases novas).
-- Push + PR da semana 2 (branch `semana1-execucao-real`) para a `main`.
 
 ## Plano (marcar ao concluir; cada fase fecha com execução real confirmada)
 

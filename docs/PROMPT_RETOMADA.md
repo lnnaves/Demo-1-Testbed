@@ -12,8 +12,9 @@ inteiro, para economizar contexto.
    achados técnicos, ambiente, estado atual e plano com checkboxes.
 
 2. LEIA AGORA, nesta ordem:
-   a) docs/DECISOES.md — D1 a D12, com o porquê de cada decisão. Atenção às
+   a) docs/DECISOES.md — D1 a D13, com o porquê de cada decisão. Atenção às
       correções dentro da D3 (DAT do BATMAN) e da D8 (precisão ~1,2 s).
+      A D13 (08/11) está EM DISCUSSÃO: casamento de pacotes por ID do IP.
    b) docs/RELATORIO_2026-11-05.md — o que foi feito no último dia.
    NÃO leia README.md, RELATORIO_TECNICO.md, CONTEXTO_AGENTE.md,
    BIN_INTERFACE.md, third-party/ nem os testes antigos, a menos que a
@@ -21,10 +22,11 @@ inteiro, para economizar contexto.
    (contrato antigo); onde conflitarem, CLAUDE.md vence.
 
 3. ONDE PARAMOS: semanas 1 e 2 concluídas e confirmadas no host. Suíte com
-   187 testes OK. Semana 1 já está na main (PR #20). Semana 2 está na
-   branch semana1-execucao-real; confira com "git fetch" e
-   "git status" se já foi enviada e se o PR dela já foi mergeado. Não afirme
+   187 testes OK. Semanas 1 e 2 já estão na main (PRs #20 e #21). Não afirme
    o estado do GitHub sem "git fetch". Próximo: SEMANA 3, latência.
+   Em 08/11 só houve discussão (D13): a usuária questionou o hash; a
+   recomendação passou a ser casar pelo ID do cabeçalho IP. Retome tirando
+   dúvidas restantes e pedindo o ok das decisões da D13 antes de codar.
 
 4. PARA A SEMANA 3, leia só estes arquivos de código:
    - scripts/testbed/metrics.py (Capture, CaptureSet, analyze_pcap,
