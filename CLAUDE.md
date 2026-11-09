@@ -135,8 +135,8 @@ fim-a-fim; entrega/perda; mobilidade.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
-- Semana 2 (commits de 05/11) na mesma branch `semana1-execucao-real`, após o
-  merge; falta push + novo PR. **Sempre rodar `git fetch` antes de afirmar o
+- Semana 2 mergeada (PR #21). Semanas 3 e 4: push feito em 09/11 na branch
+  `semana1-execucao-real`, sem PR (não estão na `main`). **Sempre rodar `git fetch` antes de afirmar o
   estado do GitHub** (a cópia local de `origin/*` fica desatualizada).
 - Confirmado no host: unicast e broadcast em `success`; receivers encerram com
   "Receiver finished"; "Mesh ready after 10.1s".

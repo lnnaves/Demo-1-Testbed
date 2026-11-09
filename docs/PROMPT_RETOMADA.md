@@ -18,17 +18,20 @@ inteiro, para economizar contexto.
       resultados, limitações). É o documento que a usuária estudou e
       apresentou aos colegas e ao orientador; use os mesmos termos.
    b) docs/RELATORIO_SEMANA4_2026-11-09.md — último dia de trabalho.
-   c) docs/DECISOES.md — leia a D15 (mobilidade) por inteiro; da D13
-      (latência) leia o resumo final ("Situação da semana 3") e as
+   c) docs/DECISOES.md — leia a D15 (mobilidade) por inteiro e a seção
+      final "Revisão antes do push" (conferência geral de 09/11 à noite,
+      com as confirmações de multi-hop, CSV e timeout e a resposta sobre
+      UDP); da D13 (latência) leia o resumo "Situação da semana 3" e as
       confirmações; das demais basta o título (grep "^## D").
    NÃO leia README.md, RELATORIO_TECNICO.md, CONTEXTO_AGENTE.md,
    BIN_INTERFACE.md, third-party/ nem os testes antigos, a menos que a
    tarefa exija (estão desatualizados; CLAUDE.md vence).
 
 3. ONDE PARAMOS (09/11/2026):
-   - Semanas 1 e 2 na main (PRs #20 e #21). Semanas 3 e 4 em commits na
-     branch semana1-execucao-real, SEM push e sem PR. Não afirme o estado do
-     GitHub sem "git fetch".
+   - Semanas 1 e 2 na main (PRs #20 e #21). Semanas 3 e 4 na branch
+     semana1-execucao-real, com push feito em 09/11 (commit 011be49 ou
+     posterior), mas SEM PR: ainda não estão na main. Não afirme o estado
+     do GitHub sem "git fetch".
    - Semana 3 (latência): casamento de pacotes pelo ID do IP, janela 5 s,
      latency-<origem>-<destino>.csv e bloco "latency" no summary.json.
    - Semana 4 (mobilidade): nodes[].mobility (trajectory com waypoints ou
@@ -61,7 +64,9 @@ inteiro, para economizar contexto.
    - o que fazer com janelas sem pacotes.
    Para isso, leia só: scripts/testbed/latency.py, scripts/testbed/mobility.py,
    scripts/testbed/observer.py e scripts/run.py. Dados reais para conferir:
-   logs/exp-08-mobilidade/2026-11-09_16-14-38/.
+   logs/exp-08-mobilidade/2026-11-09_16-14-38/ (sem relay) e
+   logs/exp-09-multihop-csv/2026-11-09_16-44-40/ (com relay: a janela
+   deve mostrar a troca de rota a ~124 m).
    Pendências que podem entrar: escolher batman_orig_interval_ms padrão para
    mobilidade; status success/inconclusive ainda depende de UDP na porta do
    config; IPv6 fora da análise; PR das semanas 3 e 4 (só se ela pedir).
