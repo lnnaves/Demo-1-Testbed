@@ -51,7 +51,8 @@ forma) e se afasta durante a execução.
 - `duration_seconds` conta do início do sender, não mais do início dos
   receivers.
 
-TESTE AUTOMÁTICO: 217 OK (13 novos, com nós falsos).
+TESTE AUTOMÁTICO: 217 OK (15 novos: 13 em `tests/test_mobility.py`, com nós
+falsos, e 2 em `tests/test_binaries.py`).
 
 ## 4. Execuções reais
 

@@ -198,6 +198,10 @@ fim-a-fim; entrega/perda; mobilidade.
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código
   (registrar `ended_by`). Ajustar junto com a semana 6.
+- `status` success/inconclusive ainda depende de UDP em `protocol.port` no
+  PCAP do sender (critério da semana 1): protocolo só TCP ou em outra porta
+  sairia `inconclusive`. Rever na semana 6. `validate_scenario.py` não rodado
+  no host desde a semana 3.
 - README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
   comportamento antigo em pontos (processos, BLA, fases novas).
 

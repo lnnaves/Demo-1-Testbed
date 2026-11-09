@@ -698,7 +698,7 @@ configurável se a usuária pedir.
 - Rodada (só leitura) sobre os PCAPs REAIS de 09/11: 20/20, mediana 0,251 ms,
   média 0,354 ms, máx 1,182 ms, p95 1,058 ms, jitter 0,160 ms — igual à conta
   manual.
-- TESTE AUTOMÁTICO: 202 OK (14 novos em `tests/test_latency.py`, com PCAPs
+- TESTE AUTOMÁTICO: 202 OK (13 novos em `tests/test_latency.py`, com PCAPs
   sintéticos, e 1 em `test_metrics.py`).
 
 **Confirmação REAL — unicast (09/11, `logs/exp-01-unicast/2026-11-09_15-02-42/`,
@@ -980,3 +980,37 @@ entregues, total 39,0 s (antes ~28 s). p99 apareceu (n ≥ 100): 3,225 ms.
   execução (29 → 133): a espera da malha termina quando o ping passa, não
   quando o BATMAN converge. Sem efeito visível aqui (enlace direto), mas
   relevante para multi-hop.
+
+---
+
+## Revisão antes do push (09/11/2026, noite)
+
+A pedido da usuária, conferência geral antes de `git push`.
+- TESTE AUTOMÁTICO: 217 OK; todos os módulos compilam (host: Python 3.12.3).
+- **Resultados REAIS recalculados de forma independente** (script que lê os
+  bytes dos PCAPs, sem usar o código do testbed): as 10 direções das 9
+  execuções de 09/11 batem com o `summary.json` em enviados, entregues,
+  mediana, máximo e jitter.
+- Configs das execuções conferidos (posições, modo, `end`, duração,
+  `orig_interval`); movimento da mobilidade conferido (x = 85 m em t = 15 s,
+  atualizações a cada 0,1 s).
+- Código conferido contra o guia: espera da malha, limpeza, drain também
+  com `end: duration`, `ended_by`, janela de 5 s, percentis, aviso de drain.
+- GitHub (`git fetch`): PRs #20 e #21 na `main`; a branch está 7 commits à
+  frente da cópia remota e nada atrás (push sem conflito).
+
+**Correções feitas nos documentos.**
+- Broadcast de 15:06: os dois receivers estavam a **20 m** do sender (gcs em
+  x=0 e drone2 em x=40, sender em x=20), não "20 e 40 m"
+  (`RELATORIO_2026-11-09.md`, `HIPOTESES_2026-11-09.md`).
+- Contagem de testes novos: semana 3 = 14 (13 + 1), semana 4 = 15 (13 + 2).
+- Guia: o exemplo de config é "baseado no" `poc_mobilidade.yml`; status
+  descrito com precisão; casamento em TCP/dois sentidos marcado como não
+  confirmado no real.
+
+**Limitação encontrada na revisão.** O `status` (`success`/`inconclusive`)
+ainda usa o critério da semana 1: existir UDP na porta `protocol.port` no
+PCAP do sender (`analyze_pcap`). Um protocolo só TCP, ou que use outra porta,
+sairia `inconclusive` mesmo com tráfego. A análise de latência/perda não é
+afetada. Rever na semana 6 (contrato novo). O `validate_scenario.py` não foi
+rodado no host depois das semanas 3–4.

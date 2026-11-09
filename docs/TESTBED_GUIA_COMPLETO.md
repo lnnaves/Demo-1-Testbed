@@ -185,8 +185,9 @@ Ser encerrado pelo testbed é normal e fica registrado como
 
 ## 5. O arquivo de configuração
 
-Um arquivo YAML descreve todo o experimento. Exemplo comentado (é o
-`poc_mobilidade.yml` usado na validação da semana 4):
+Um arquivo YAML descreve todo o experimento. Exemplo comentado, baseado no
+`poc_mobilidade.yml` usado na validação da semana 4 (alguns campos opcionais
+omitidos):
 
 ```yaml
 experiment:
@@ -293,9 +294,16 @@ time,t,node,destination,best,next_hop,tq,last_seen_s,interface
 
 **Status da execução** (`summary.json`):
 - `success`: programas rodaram e encerraram como esperado, captura válida e
-  tráfego observado;
-- `inconclusive`: rodou, mas nenhum tráfego do protocolo foi visto;
-- `failed`: programa falhou, captura inválida, rede não ficou pronta etc.
+  pelo menos um pacote UDP na porta `protocol.port` visto no PCAP do sender;
+- `inconclusive`: rodou, mas nenhum pacote UDP na porta `protocol.port`
+  apareceu no PCAP do sender (critério antigo, da semana 1; ver
+  limitações);
+- `failed`: programa falhou ou captura inválida.
+
+Se a execução é interrompida antes do protocolo (ex.: `network not ready`,
+erro ao montar a rede), não há `summary.json`: o erro aparece na tela e o
+`timing.json` marca a fase que falhou. Erro no config impede até a criação da
+pasta.
 
 **Perder pacotes não é falha do testbed.** É resultado do cenário. A
 análise de latência e perda nunca muda o status.
@@ -354,9 +362,12 @@ Cuidados descobertos na prática:
 - a ordem dos pacotes vem do horário de envio, não do ID.
 
 O casamento não depende do protocolo: o ID é posto pelo kernel em qualquer
-pacote IP. Funciona para UDP (inclusive CoAP, usado pelo PQ-EDHOC), TCP e
-ICMP, **nos dois sentidos** (importante para protocolos de diálogo, como um
-handshake). O testbed nunca lê o conteúdo.
+pacote IP. Foi feito para analisar UDP (inclusive CoAP, usado pelo
+PQ-EDHOC), TCP e ICMP, **nos dois sentidos** (importante para protocolos de
+diálogo, como um handshake). O testbed nunca lê o conteúdo. Até agora, o
+REAL confirmou só UDP num sentido (os binários de exemplo); os dois
+sentidos e o ICMP estão cobertos só por teste automático, e o TCP ainda não
+foi testado.
 
 A leitura dos PCAPs é feita em Python puro (`scripts/testbed/pcap.py`), sem
 dependências novas. Para **visualizar** o tráfego, o usuário pode usar
@@ -596,6 +607,8 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 | Precisão da espera da malha ~1,2 s | Cada tentativa de ping que falha espera 1 s |
 | Contrato de argumentos fixo | Até a semana 6, o programa precisa aceitar `--destination/--address/--port` |
 | Imagem do usuário precisa de `ping` | Usado na espera da malha; `FROM drone:latest` já tem |
+| Status `success`/`inconclusive` olha só UDP na porta do config, no sender | Um protocolo só TCP, ou em outra porta, sairia `inconclusive` mesmo com tráfego; a análise de latência (que olha tudo) não é afetada. Rever na semana 6 |
+| Validador `validate_scenario.py` | Não foi rodado no host depois das semanas 3–4; ainda exige código de saída 0 |
 
 ---
 

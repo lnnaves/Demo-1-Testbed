@@ -41,7 +41,8 @@ automáticos). Este relatório resume; o `DECISOES.md` é a referência.
   pacote por linha, e o bloco `latency` no `summary.json`. Fase nova
   `analyze_network` no `timing.json` (~1 ms). Resumo por sentido no
   terminal.
-- TESTE AUTOMÁTICO: 202 OK (15 novos).
+- TESTE AUTOMÁTICO: 202 OK (14 novos: 13 em `tests/test_latency.py`, 1 em
+  `tests/test_metrics.py`).
 - Commits `80e2d02` e `a231129` na branch `semana1-execucao-real` (sem push).
 
 ## 4. Execuções reais
@@ -50,7 +51,7 @@ automáticos). Este relatório resume; o `DECISOES.md` é a referência.
 |---|---|---|---|---|---|
 | Etapa 0: IDs nos PCAPs | 20 m | 20/20 (à mão) | 0,25 ms | 1,18 ms | — |
 | Unicast | 20 m | 20/20 | 0,240 ms | 1,166 ms | 0,157 ms |
-| Broadcast → gcs / drone2 | 20 / 40 m | 20/20 cada | 0,929 / 0,986 ms | 0,978 / 1,029 ms | 0,040 / 0,045 ms |
+| Broadcast → gcs / drone2 | 20 m / 20 m | 20/20 cada | 0,929 / 0,986 ms | 0,978 / 1,029 ms | 0,040 / 0,045 ms |
 | Unicast | 50 m | 20/20 | 0,922 ms | 1,147 ms | 0,226 ms |
 | Broadcast | 50 m | 20/20 | 0,938 ms | 4,191 ms | 0,549 ms |
 | Broadcast | 58 m | 20/20 | 0,937 ms | 1,613 ms | 0,108 ms |

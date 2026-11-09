@@ -10,7 +10,7 @@ foi verificada.
 | Execução | Distância | Entregues | Mediana | Jitter |
 |---|---|---|---|---|
 | Unicast | 20 m | 20/20 | 0,240 ms | 0,157 ms |
-| Broadcast (2 receivers) | 20 m e 40 m | 20/20 cada | 0,929 / 0,986 ms | 0,040 / 0,045 ms |
+| Broadcast (2 receivers) | 20 m de cada | 20/20 cada | 0,929 / 0,986 ms | 0,040 / 0,045 ms |
 | Unicast | 50 m | 20/20 | 0,922 ms | 0,226 ms |
 
 ## Hipótese 1: broadcast é ~4× mais lento, mas mais estável
