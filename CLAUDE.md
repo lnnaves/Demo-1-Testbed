@@ -131,7 +131,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (2026-11-08)
+## Estado atual (2026-11-09)
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
@@ -168,6 +168,8 @@ fim-a-fim; entrega/perda; mobilidade.
   .551854 → no do gcs .553587 = 1,73 ms.
 - **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
   `git fetch` em 2026-11-08.
+- 09/11 a 16/11: usuária estudando e apresentando o testbed (guia completo,
+  relatório da semana 4). Próximo: semana 5. Perguntar o que surgiu.
 - **2026-11-09 (tarde): semana 4 implementada e confirmada no host** (D15):
   `experiment.end`, `nodes[].mobility`, `testbed/mobility.py` (setPosition a
   cada 0,1 s após o início do sender), `testbed/observer.py` (routes.csv e
@@ -246,6 +248,8 @@ CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 - `docs/PROMPT_RETOMADA.md` (atualizado 09/11): prompt para iniciar uma sessão nova (o que ler,
   onde paramos, como trabalhar). Atualizar ao fim de cada dia.
 - `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
+- **`docs/TESTBED_GUIA_COMPLETO.md`**: visão completa do testbed (09/11),
+  escrita para colegas e orientador; atualizar quando algo grande mudar.
 
 - **`docs/DECISOES.md`: registro de decisões com explicação completa**
   (contexto/quando surgiu, decisão, onde no código, implicações). **Toda decisão
