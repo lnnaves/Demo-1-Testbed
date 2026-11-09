@@ -815,3 +815,150 @@ testbed.**
   não funcionamento.
 
 **Onde.** `tests/` (todos os testes). Regra registrada também no `CLAUDE.md`.
+
+---
+
+## D15. Mobilidade (09/11/2026; implementada, aguardando confirmação REAL)
+
+**Contexto: quando surgiu.** Semana 4 do plano. Além do plano, há um motivo
+novo: a perda de pacotes não apareceu em nenhuma posição fixa (D13, 20 a
+70 m), então a validação real da perda depende de um nó que se afasta
+durante a execução. A PoC de 05/11 (`scripts/poc_mobility.py`) já provou
+que `setPosition()` muda o sinal no wmediumd e que o BATMAN troca de rota.
+
+**Estado atual do código.** Posições só fixas (`nodes[].position`). O
+experimento termina quando o sender termina (+ `drain_seconds`); estourar
+`duration_seconds` é falha ("sender timed out"). O sender de exemplo dura
+~1 s.
+
+**Propostas levadas à usuária (aguardando ok).**
+1. Config: `nodes[].mobility` opcional; sem ele = parado. `type: trajectory`
+   com `waypoints` `[t, x, y, z]` (t em segundos desde o início do sender)
+   ou `waypoints_csv`; interpolação linear; após o último ponto, parado. O
+   primeiro waypoint deve ser t=0 e igual a `position` (onde o nó fica
+   durante a espera da malha); diferente = erro.
+2. Quem move: thread do testbed chamando `setPosition()` a cada 0,1 s.
+3. t=0 = início do sender (depois dos receivers subirem). Nada se move
+   durante a espera da malha.
+4. Fim do experimento: `experiment.end: sender | duration`. `sender` = como
+   hoje. `duration` = o testbed encerra o sender (SIGTERM) em
+   `duration_seconds`; normal, registrado `ended_by: testbed` (já era
+   decisão de design no CLAUDE.md).
+5. Sender de exemplo: enviar a cada 50 ms até receber SIGTERM (fluxo
+   contínuo, como telemetria), argumentos inalterados; o config de exemplo
+   passa a usar `end: duration`.
+6. Logs durante a execução, só observando (nenhum pacote enviado):
+   `positions.csv` (instante, nó, x, y, z), `routes.csv` (`batctl o` de cada
+   nó a cada 1 s: originador, próximo salto, TQ, last-seen) e `signal.csv`
+   (`iw station dump`: vizinho, sinal dBm).
+7. `batman_orig_interval_ms`: manter 1000 como padrão ou passar para 200
+   (na PoC, 1000 não trocou de rota a tempo; 200 trocou).
+8. Validação REAL: drone1 sai de 20 m e vai a 150 m do gcs em 30 s, drone2
+   fora do caminho; esperado: perda a partir de ~70 m, visível no CSV de
+   latência e cruzável com `positions.csv`.
+Semana 5 (depois): latência/perda por janela de tempo cruzada com posições.
+
+**Decidido (09/11):** a usuária aprovou os 8 pontos: `experiment.end`
+(campo novo), sender de exemplo a cada 50 ms até SIGTERM, e opção (a) no
+item 7 (padrão continua 1000 ms; exemplos de mobilidade usam 200).
+
+**Implementado (09/11).**
+- `config.py`: `experiment.end` (`sender` padrão | `duration`);
+  `nodes[].mobility` (`static` | `trajectory` com `waypoints` ou
+  `waypoints_csv`), validado: ≥ 2 pontos, 1º em t=0 e igual a `position`,
+  tempos crescentes, campos desconhecidos = erro.
+- `mobility.py`: thread move os nós com trajetória a cada 0,1 s
+  (`setPosition`), só depois do início do sender; `positions.csv` com todos
+  os nós a cada 0,1 s (`time` epoch e `t` desde o início do sender).
+- `observer.py`: thread lê `batctl o` e `iw dev <wlan> station dump` de
+  todos os nós a cada 1 s → `routes.csv` (destino, melhor rota, próximo
+  salto, TQ, last-seen) e `signal.csv` (sinal, taxa, tx retries, tx failed,
+  inactive). Só leitura de tabelas locais; nenhum pacote enviado. Também
+  serve para verificar as hipóteses de `HIPOTESES_2026-11-09.md` (taxa e
+  reenvios do Wi-Fi). Uma trava por nó evita `setPosition` e `cmd`
+  simultâneos no mesmo nó.
+- `runner.py`: `duration_seconds` passa a contar **a partir do início do
+  sender** (antes contava desde o início dos receivers, ~1 s a mais). Com
+  `end: duration`, o sender encerrado no limite é normal; com `end: sender`,
+  continua falha. Campo `ended_by` (`self` | `testbed`) no sender e nos
+  receivers.
+- `bin/sender`: um pacote a cada 50 ms até SIGTERM/SIGINT. **Mudança além do
+  combinado:** se um envio falha (ex.: sem rota quando o drone sai do
+  alcance), o erro é contado e o envio continua; antes o sender saía com
+  código 1. Sem isso, a perda no cenário de mobilidade viraria "sender
+  falhou". No fim imprime "N sent, M send errors".
+- `scripts/config.yml`: `end: duration`, `duration_seconds: 10` (o padrão
+  antigo de 60 s faria cada execução durar 60 s com o sender contínuo).
+- Falhas de mobilidade/observação viram aviso, nunca falha da execução.
+- **Atenção:** os `poc_*.yml` antigos não têm `end`, então valem `end:
+  sender` e 60 s; com o sender contínuo, rodá-los de novo terminaria em
+  "sender timed out" após 60 s. Eles continuam válidos como registro das
+  execuções de 09/11.
+- TESTE AUTOMÁTICO: 217 OK (13 novos em `tests/test_mobility.py`, nós
+  falsos).
+- Config de validação: `poc_mobilidade.yml` (unicast, drone1 de 20 m a
+  150 m do gcs em 30 s, `end: duration` 35 s, `orig_interval` 200, drone2 a
+  200 m).
+
+**Explicação: os 10 s do config padrão (09/11).** `duration_seconds: 10` com
+`end: duration` = o sender de exemplo roda 10 s (≈ 200 pacotes, 1 a cada
+50 ms) e então o testbed o encerra (SIGTERM). Depois vêm o `drain_seconds`
+(1 s) e a parada dos receivers. A execução inteira continua mais longa
+(montar a rede, espera da malha, limpeza: ~20 s). Por que 10: o sender
+contínuo nunca termina sozinho, então algo precisa encerrá-lo; 60 s
+deixaria cada execução de exemplo lenta; 200 pacotes bastam para p95 e p99
+(n ≥ 100). É só o valor do exemplo, o usuário escolhe. Com `end: sender`,
+o mesmo campo vira só um limite de segurança.
+
+**Explicação: como saber se o protocolo duraria mais (09/11).** Depende do
+tipo de protocolo, e quem escolhe é o usuário:
+- Protocolo que **termina sozinho** (handshake, transferência): `end:
+  sender`, com `duration_seconds` folgado (limite de segurança). A duração
+  natural fica registrada (`started_at`/`ended_at`, `duration_seconds` do
+  sender, `ended_by: self`). Se passar do limite, a execução falha com
+  "sender timed out" e `ended_by: testbed`: o usuário fica sabendo que durou
+  mais e aumenta o limite.
+- Protocolo **contínuo** (telemetria, fluxo): não tem duração natural;
+  `end: duration` define a janela de observação. `ended_by: testbed` é o
+  esperado. Se o sender terminar antes (`ended_by: self`), isso também fica
+  registrado.
+Nos dois casos o testbed nunca esconde o corte: `ended_by` diz quem
+terminou cada programa.
+
+**Confirmação REAL — mobilidade e perda (09/11,
+`logs/exp-08-mobilidade/2026-11-09_16-14-38/`, `poc_mobilidade.log`).**
+`success`, sem avisos, malha 9,0 s, total 62,6 s. 365 atualizações de
+posição (10/s), 39 amostras de rotas/sinal. Sender: 698 enviados, 0 erros
+de envio, `ended_by: testbed` em 35,07 s. Receiver `ended_by: testbed`.
+- **Perda real pela primeira vez:** 407/698 entregues (41,7% de perda),
+  maior rajada 76 pacotes, p99 110,7 ms. Conferência independente
+  (decodificação crua, casando por ID): 407. Bate.
+- Por faixa de distância (posição do drone1 no envio):
+
+| Distância | Entregues | Mediana | Máx |
+|---|---|---|---|
+| 20–70 m | 229/229 | ~0,23 ms | 4,4 ms |
+| 70–80 m | 46/46 | 2,4 ms | 3,8 ms |
+| 80–90 m | 37/46 | 2,7 ms | 111,6 ms |
+| 90–100 m | 39/45 | 2,5 ms | 106,4 ms |
+| 100–110 m | 25/46 | 60,6 ms | 111,5 ms |
+| 110–120 m | 13/46 | 102,6 ms | 111,1 ms |
+| 120–150 m | 14/137 | ~106 ms | 110,9 ms |
+| 150 m (parado) | 2/101 | 107,7 ms | 110,1 ms |
+
+- Primeiro pacote perdido com o drone a 84 m. Antes da perda, a latência
+  subiu (×10 a partir de ~70 m); perto do fim, o que chega leva ~100 ms.
+- `signal.csv` (drone1 → gcs): sinal -63 dBm a 20 m, -80 a 50 m, -88 a
+  ~72 m e depois oscilando entre -83 e -90 (o valor é do último quadro
+  recebido, não desce abaixo do limiar -91). Taxa fixa em 13 Mbit/s após o
+  início. **`tx failed` começa a crescer a ~111 m (1 → 157).** `tx retries`
+  ficou 0 o tempo todo: ou não houve reenvio, ou o mac80211_hwsim/wmediumd
+  não preenche esse contador. **A hipótese 2 (reenvio do Wi-Fi vira atraso)
+  não foi confirmada nem descartada por esse contador.**
+- `routes.csv`: rota direta via gcs o tempo todo (drone2 a 200 m, sem
+  relay); TQ de 255 caiu a 133 e o last-seen chegou a ~4 s no fim.
+- **Correção do alcance (de novo):** com movimento, a entrega foi 100% até
+  ~84 m e ainda houve pacotes isolados a 150 m. Não há corte abrupto:
+  latência sobe primeiro, depois a perda cresce até quase 100%.
+- Hipótese (não verificada) para os ~100 ms: fila no Wi-Fi/BATMAN enquanto
+  cada quadro espera tentativas de envio num enlace quase morto.

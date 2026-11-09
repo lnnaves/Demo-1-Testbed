@@ -282,6 +282,7 @@ def write_outputs(
     protocol_result: dict[str, Any],
     capture_result: dict[str, Any],
     network_analysis: dict[str, Any] | None = None,
+    scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metrics = capture_result.get("metrics", {})
     write_csv(config["output"]["csv"], metrics)
@@ -310,6 +311,11 @@ def write_outputs(
             warnings.extend(network_analysis.get("warnings", []))
         else:
             warnings.append(f"network analysis failed: {network_analysis.get('error')}")
+    if scenario is not None:
+        # Mobility/observation problems are reported, never fatal (D15).
+        for part in ("mobility", "observer"):
+            for error in (scenario.get(part) or {}).get("errors", []):
+                warnings.append(f"{part}: {error}")
     summary = {
         "experiment": config["experiment"]["id"],
         "mode": config["protocol"]["mode"],
@@ -322,6 +328,7 @@ def write_outputs(
         "capture": capture_result,
         "metrics": metrics,
         "latency": network_analysis,
+        "scenario": scenario,
         "failures": failures,
         "warnings": warnings,
         "outputs": config["output"],

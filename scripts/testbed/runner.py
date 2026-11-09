@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from .network import container_popen
 
@@ -22,6 +22,9 @@ class ProcessRecord:
     exit_code: int | None = None
     stdout: str = ""
     stderr: str = ""
+    # "self": the process exited on its own; "testbed": the testbed stopped it
+    # (SIGTERM/kill). Being stopped by the testbed is normal (CLAUDE.md, D15).
+    ended_by: str | None = None
 
     def finish(self, timeout: float | None = None) -> None:
         stdout, stderr = self.process.communicate(timeout=timeout)
@@ -57,7 +60,18 @@ def _spawn(node: Any, command: list[str]) -> Any:
     return container_popen(node, command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
-def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str, Any]:
+def execute_protocol(
+    config: dict[str, Any],
+    nodes: dict[str, Any],
+    on_sender_start: Callable[[float], None] | None = None,
+) -> dict[str, Any]:
+    """Run receivers, then the sender, then stop the receivers.
+
+    experiment.duration_seconds counts from the sender start. With
+    experiment.end == "duration" the testbed stops the sender at that limit
+    (normal end); with "sender" (default) reaching the limit is a failure.
+    on_sender_start(wall_time) is called right after the sender is spawned.
+    """
     experiment = config["experiment"]
     protocol = config["protocol"]
     receiver_records: list[ProcessRecord] = []
@@ -110,8 +124,10 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
                 failures.append(f"failed to start sender {sender_name}: {exc}")
             else:
                 sender_record = ProcessRecord("sender", sender_name, command, sender_process, time.monotonic())
+                if on_sender_start is not None:
+                    on_sender_start(sender_record.started_wall)
 
-                remaining = max(0.1, experiment["duration_seconds"] - (time.monotonic() - start))
+                remaining = max(0.1, experiment["duration_seconds"] - (time.monotonic() - sender_record.started_at))
                 timed_out = False
                 try:
                     sender_record.finish(timeout=remaining)
@@ -123,7 +139,11 @@ def execute_protocol(config: dict[str, Any], nodes: dict[str, Any]) -> dict[str,
                     except subprocess.TimeoutExpired:
                         sender_record.process.kill()
                         sender_record.finish(timeout=None)
-                    failures.append("sender timed out")
+                    sender_record.ended_by = "testbed"
+                    if experiment.get("end", "sender") != "duration":
+                        failures.append("sender timed out")
+                else:
+                    sender_record.ended_by = "self"
 
                 if not timed_out and sender_record.exit_code != 0:
                     failures.append(f"sender exited with code {sender_record.exit_code}")
@@ -156,8 +176,10 @@ def stop_receivers(records: list[ProcessRecord], timeout: float) -> list[str]:
             continue
         exit_code = record.process.poll()
         if exit_code is not None:
+            record.ended_by = "self"
             failures.append(f"receiver {record.node} exited unexpectedly with code {exit_code}")
         else:
+            record.ended_by = "testbed"
             record.process.terminate()
 
     for record in records:
@@ -179,6 +201,7 @@ def _record_summary(record: ProcessRecord | None) -> dict[str, Any] | None:
         "node": record.node,
         "command": record.command,
         "exit_code": record.exit_code,
+        "ended_by": record.ended_by,
         "stdout": record.stdout,
         "stderr": record.stderr,
         "duration_seconds": None if record.ended_at is None else record.ended_at - record.started_at,

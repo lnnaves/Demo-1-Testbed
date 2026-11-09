@@ -87,7 +87,9 @@ fim-a-fim; entrega/perda; mobilidade.
 - **`range` não tem efeito** no modo interference: passado ao `addStation` só
   fixa `wintf.range` (static_range); potência só mudaria via `setRange()`.
   Alcance direto: **não é ~60 m** (correção 09/11): broadcast/unicast com
-  20/20 entregues a 50, 58, 62 e 70 m; na PoC o ping só falhou quase sempre
+  20/20 entregues a 50, 58, 62 e 70 m; em movimento, 100% até ~84 m,
+  perda crescente depois, pacotes isolados ainda a 150 m (sem corte
+  abrupto; latência sobe antes da perda); na PoC o ping só falhou quase sempre
   de ~72 m em diante (os -90 dBm do log são o último valor recebido). Sinal medido
   (poc_200ms.log): 15 m -53..-74, 30 m -68..-82, 45 m -82..-89, 60 m -90 dBm;
   ping falhou com enlace de ~42–57 m. No cenário padrão (0/20/40) todos são
@@ -166,6 +168,14 @@ fim-a-fim; entrega/perda; mobilidade.
   .551854 → no do gcs .553587 = 1,73 ms.
 - **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
   `git fetch` em 2026-11-08.
+- **2026-11-09 (tarde): semana 4 implementada e confirmada no host** (D15):
+  `experiment.end`, `nodes[].mobility`, `testbed/mobility.py` (setPosition a
+  cada 0,1 s após o início do sender), `testbed/observer.py` (routes.csv e
+  signal.csv a cada 1 s), sender de exemplo contínuo (50 ms até SIGTERM,
+  erros de envio contados), `duration_seconds` conta do início do sender,
+  `config.yml` padrão com `end: duration` e 10 s. Real (`poc_mobilidade.yml`,
+  20→150 m em 30 s): 407/698, perda começa a 84 m, latência sobe antes.
+  Suíte 217 OK. Falta semana 5: latência por janela × posições.
 - **2026-11-09: semana 3 implementada** (D13, D14): `testbed/pcap.py` +
   `testbed/latency.py`, casamento pelo ID do IP, `latency-<orig>-<dest>.csv`
   + bloco `latency` no summary. REAL confirmado: unicast e broadcast (por
@@ -211,12 +221,13 @@ fim-a-fim; entrega/perda; mobilidade.
       mín/mediana/média/p95/p99/máx, jitter, entrega/perda, rajada de perda,
       fora de ordem, duplicados; por sentido e por receiver
 - [x] Testes com PCAPs sintéticos (TESTE AUTOMÁTICO, D14)
-- [ ] Perda confirmada em execução real (adiada para a mobilidade)
+- [x] Perda confirmada em execução real (mobilidade, 09/11: 407/698)
 
 ### Semanas 4–5 — mobilidade
-- [ ] `nodes[].mobility`: `static` | `trajectory` (waypoints/CSV)
-- [ ] Encerrar por duração ou por fim do sender
-- [ ] Log de posições e log de `batctl o` ao longo do tempo (saltos por instante)
+- [x] `nodes[].mobility`: `static` | `trajectory` (waypoints/CSV)
+- [x] Encerrar por duração ou por fim do sender (`experiment.end`; real: duration)
+- [x] Log de posições e log de `batctl o` ao longo do tempo (saltos por instante)
+      + `signal.csv` (`iw station dump`)
 - [ ] Latência por janela de tempo cruzada com posições
 
 ### Semana 6 — contrato e documentação

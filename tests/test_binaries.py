@@ -88,6 +88,20 @@ class BinaryTests(unittest.TestCase):
     def sender_argv(self, destination="127.0.0.1", port="5000"):
         return ["sender", "--destination", destination, "--port", port]
 
+    def run_sender(self, fake, destination="127.0.0.1", packets=3):
+        """Run the continuous sender; the fake sleep stops it after `packets` sends."""
+        original = self.sender.running
+        self.addCleanup(setattr, self.sender, "running", original)
+
+        def fake_sleep(_seconds):
+            if len(fake.sent) + getattr(fake, "failures", 0) >= packets:
+                self.sender.stop(None, None)
+
+        with patch.object(self.sender.socket, "socket", return_value=fake), \
+                patch.object(self.sender.time, "sleep", side_effect=fake_sleep), \
+                patch.object(self.sender.signal, "signal"):
+            return self.run_main(self.sender, self.sender_argv(destination=destination))
+
     def test_sender_rejects_invalid_port(self):
         code, stdout, stderr = self.run_main(self.sender, self.sender_argv(port="0"))
 
@@ -106,29 +120,35 @@ class BinaryTests(unittest.TestCase):
 
     def test_sender_accepts_only_destination_and_port(self):
         fake = FakeSocket()
-        with patch.object(self.sender.socket, "socket", return_value=fake):
-            code, _stdout, stderr = self.run_main(self.sender, self.sender_argv(destination="192.168.123.1"))
+        code, _stdout, stderr = self.run_sender(fake, destination="192.168.123.1")
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         self.assertEqual(fake.sent[0][1], ("192.168.123.1", 5000))
 
-    def test_sender_sends_fixed_count_of_identical_datagrams(self):
+    def test_sender_streams_identical_datagrams_until_stopped(self):
         fake = FakeSocket()
-        with patch.object(self.sender.socket, "socket", return_value=fake), \
-                patch.object(self.sender.time, "sleep") as sleep:
-            code, _stdout, stderr = self.run_main(self.sender, self.sender_argv(destination="192.168.123.1"))
+        code, stdout, stderr = self.run_sender(fake, destination="192.168.123.1", packets=7)
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
-        self.assertEqual(len(fake.sent), self.sender.PACKET_COUNT)
-        self.assertEqual(sleep.call_count, self.sender.PACKET_COUNT - 1)
+        self.assertEqual(len(fake.sent), 7)
         self.assertEqual({payload for payload, _address in fake.sent}, {b"\x00"})
+        self.assertIn("7 sent", stdout)
+
+    def test_sender_registers_sigterm_and_sigint_handlers(self):
+        fake = FakeSocket()
+        with patch.object(self.sender.socket, "socket", return_value=fake), \
+                patch.object(self.sender.time, "sleep", side_effect=lambda _s: self.sender.stop(None, None)), \
+                patch.object(self.sender.signal, "signal") as signal_mock:
+            self.run_main(self.sender, self.sender_argv())
+
+        registered = {call.args[0] for call in signal_mock.call_args_list}
+        self.assertEqual(registered, {signal.SIGINT, signal.SIGTERM})
 
     def test_sender_allows_broadcast_destination(self):
         fake = FakeSocket()
-        with patch.object(self.sender.socket, "socket", return_value=fake):
-            code, _stdout, _stderr = self.run_main(self.sender, self.sender_argv(destination="192.168.123.255"))
+        code, _stdout, _stderr = self.run_sender(fake, destination="192.168.123.255")
 
         self.assertEqual(code, 0)
         self.assertIn(
@@ -153,19 +173,30 @@ class BinaryTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, 2)
 
-    def test_sender_sendto_failure_returns_operational_error(self):
+    def test_sender_counts_send_failures_and_keeps_streaming(self):
         fake = FakeSocket()
+        fake.failures = 0
 
         def fail_sendto(_payload, _address):
-            raise OSError("send failed")
+            fake.failures += 1
+            raise OSError("no route")
 
         fake.sendto = fail_sendto
-        with patch.object(self.sender.socket, "socket", return_value=fake):
+        code, stdout, stderr = self.run_sender(fake, packets=4)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.failures, 4)
+        self.assertEqual(stderr.count("Sender send error (continuing): no route"), 1)
+        self.assertIn("4 send errors", stdout)
+
+    def test_sender_socket_failure_returns_operational_error(self):
+        with patch.object(self.sender.socket, "socket", side_effect=OSError("no sockets")), \
+                patch.object(self.sender.signal, "signal"):
             code, stdout, stderr = self.run_main(self.sender, self.sender_argv())
 
         self.assertEqual(code, 1)
         self.assertEqual(stdout, "")
-        self.assertIn("Sender error: send failed", stderr)
+        self.assertIn("Sender error: no sockets", stderr)
 
     def test_receiver_rejects_invalid_port(self):
         code, stdout, stderr = self.run_main(self.receiver, ["receiver", "--address", "127.0.0.1", "--port", "65536"])

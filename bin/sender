@@ -3,22 +3,33 @@
 
 This file is not a protocol. It only demonstrates the operational contract
 expected by the testbed: receive --destination/--port, open its own socket and
-run in foreground until it finishes. Replace it with the real protocol
-executable; the testbed never interprets what is sent or printed.
+run in foreground. Replace it with the real protocol executable; the testbed
+never interprets what is sent or printed.
+
+It behaves like a telemetry stream: one datagram every 50 ms until SIGTERM or
+SIGINT (the testbed stops it after experiment.duration_seconds when
+experiment.end is "duration"). A failed send (e.g. no route while a drone is
+out of range) is counted and the stream goes on, as a real sender would.
 """
 
 import argparse
 import ipaddress
+import signal
 import socket
 import sys
 import time
 
-# Fixed example traffic: enough packets to observe loss, jitter and the IP
-# identification field changing from packet to packet. The payload is always
-# the same byte on purpose: identical payloads are common in real protocols
-# and the testbed must not depend on payload content to tell packets apart.
-PACKET_COUNT = 20
+# The payload is always the same byte on purpose: identical payloads are
+# common in real protocols and the testbed must not depend on payload content
+# to tell packets apart.
 PACKET_INTERVAL_SECONDS = 0.05
+
+running = True
+
+
+def stop(_signal, _frame):
+    global running
+    running = False
 
 
 def parse_arguments():
@@ -29,11 +40,22 @@ def parse_arguments():
 
 
 def tx(sock, destination, port):
-    """Send a fixed number of minimal datagrams at a fixed interval."""
-    for index in range(PACKET_COUNT):
-        if index:
+    """Send one minimal datagram every interval until asked to stop.
+
+    Returns (sent, failed) counts.
+    """
+    sent = failed = 0
+    while running:
+        try:
+            sock.sendto(b"\x00", (destination, port))
+            sent += 1
+        except OSError as error:
+            if failed == 0:
+                print(f"Sender send error (continuing): {error}", file=sys.stderr, flush=True)
+            failed += 1
+        if running:
             time.sleep(PACKET_INTERVAL_SECONDS)
-        sock.sendto(b"\x00", (destination, port))
+    return sent, failed
 
 
 def is_ipv4_address(value):
@@ -44,7 +66,12 @@ def is_ipv4_address(value):
 
 
 def main():
+    global running
+    running = True
     args = parse_arguments()
+
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
 
     if not 1 <= args.port <= 65535:
         print("Invalid port", file=sys.stderr)
@@ -59,9 +86,9 @@ def main():
             # This option only permits sending to a broadcast destination. It does
             # not choose the scenario; config.yml and runner.py choose the IP.
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            tx(sock, args.destination, args.port)
+            sent, failed = tx(sock, args.destination, args.port)
 
-        print(f"Sender finished for {args.destination}:{args.port}", flush=True)
+        print(f"Sender finished for {args.destination}:{args.port}: {sent} sent, {failed} send errors", flush=True)
         return 0
 
     except OSError as error:

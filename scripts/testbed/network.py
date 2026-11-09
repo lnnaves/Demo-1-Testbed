@@ -20,6 +20,16 @@ class NetworkContext:
             pass
 
 
+def station_mac(index: int) -> str:
+    """MAC of the index-th station (1-based, config order); BATMAN shows it."""
+    return f"02:00:00:00:00:{index:02x}"
+
+
+def station_macs(config: dict[str, Any]) -> dict[str, str]:
+    """MAC -> node id, to show BATMAN/iw tables with node names."""
+    return {station_mac(index): name for index, name in enumerate(config["nodes"], start=1)}
+
+
 def build_network(config: dict[str, Any]) -> NetworkContext:
     from containernet.net import Containernet
     from containernet.node import DockerSta
@@ -46,7 +56,7 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
             nodes[node_cfg["id"]] = net.addStation(
                 node_cfg["container_name"],
                 cls=DockerSta,
-                mac=f"02:00:00:00:00:{index:02x}",
+                mac=station_mac(index),
                 ip=f"10.0.0.{index}/8",
                 position=",".join(str(value) for value in node_cfg["position"]),
                 dimage=node_cfg["image"],

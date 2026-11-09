@@ -52,6 +52,11 @@ class RunMainTests(unittest.TestCase):
         write_metadata_patch = patch("run.write_metadata")
         self.mock_write_metadata = write_metadata_patch.start()
         self.addCleanup(write_metadata_patch.stop)
+        # Mobility/observation threads need real nodes; they have their own tests.
+        monitor_patch = patch("run.ScenarioMonitor")
+        self.mock_monitor = monitor_patch.start()
+        self.mock_monitor.return_value.start.return_value.stop.return_value = {"mobility": {}, "observer": {}}
+        self.addCleanup(monitor_patch.stop)
         # The latency analysis reads real PCAPs; it has its own tests.
         analyze_patch = patch("run.analyze_run", return_value=None)
         self.mock_analyze_run = analyze_patch.start()

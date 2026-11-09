@@ -21,7 +21,7 @@ SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 _TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "capture"}
 _EXPERIMENT_FIELDS = {
     "id", "duration_seconds", "receiver_startup_seconds", "shutdown_timeout_seconds",
-    "network_ready_timeout_seconds", "drain_seconds",
+    "network_ready_timeout_seconds", "drain_seconds", "end",
 }
 _PROTOCOL_FIELDS = {"mode", "port", "sender", "receivers"}
 _WIRELESS_FIELDS = {
@@ -29,7 +29,13 @@ _WIRELESS_FIELDS = {
     "propagation_model", "propagation_exponent", "subnet", "broadcast_ip", "interface",
     "batman_bridge_loop_avoidance", "batman_orig_interval_ms",
 }
-_NODE_FIELDS = {"id", "container_name", "ip", "position", "image", "memory", "txpower"}
+_NODE_FIELDS = {"id", "container_name", "ip", "position", "image", "memory", "txpower", "mobility"}
+_MOBILITY_FIELDS = {"type", "waypoints", "waypoints_csv"}
+# How the experiment ends (D15): when the sender exits on its own, or when the
+# testbed stops it after experiment.duration_seconds (normal, not a failure).
+END_SENDER = "sender"
+END_DURATION = "duration"
+SUPPORTED_END_MODES = {END_SENDER, END_DURATION}
 _BINARIES_FIELDS = {"sender", "receiver"}
 _CAPTURE_FIELDS = {"filter"}
 
@@ -112,6 +118,74 @@ def _executable(root: Path, value: str, path: str) -> dict[str, str]:
     }
 
 
+def _waypoint(values: Any, path: str) -> list[float]:
+    if not isinstance(values, (list, tuple)) or len(values) != 4:
+        raise ConfigError(f"{path} must be [t, x, y, z]")
+    return [float(_require_number(value, path)) for value in values]
+
+
+def _read_waypoints_csv(csv_path: Path, path: str) -> list[list[float]]:
+    """CSV with one waypoint per line: t,x,y,z (an optional header line is skipped)."""
+    try:
+        lines = csv_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ConfigError(f"{path} cannot be read: {exc}") from exc
+    waypoints = []
+    for number, line in enumerate(lines, start=1):
+        cells = [cell.strip() for cell in line.split(",")]
+        if not line.strip() or (number == 1 and cells and cells[0].lower() == "t"):
+            continue
+        try:
+            waypoints.append([float(cell) for cell in cells])
+        except ValueError:
+            raise ConfigError(f"{path} line {number} must be numeric t,x,y,z: {line!r}") from None
+        if len(waypoints[-1]) != 4:
+            raise ConfigError(f"{path} line {number} must have 4 values t,x,y,z: {line!r}")
+    return waypoints
+
+
+def _mobility(root: Path, value: Any, position: list[float], path: str) -> dict[str, Any]:
+    """Normalize nodes[].mobility (D15). No mobility = static at position."""
+    if value is None:
+        return {"type": "static"}
+    mobility = _require_mapping(value, path)
+    _reject_unknown_fields(mobility, _MOBILITY_FIELDS, path)
+    kind = _require_string(mobility.get("type", "static"), f"{path}.type")
+    if kind == "static":
+        if "waypoints" in mobility or "waypoints_csv" in mobility:
+            raise ConfigError(f"{path}: waypoints are only allowed with type: trajectory")
+        return {"type": "static"}
+    if kind != "trajectory":
+        raise ConfigError(f"{path}.type must be 'static' or 'trajectory'")
+    has_list = "waypoints" in mobility
+    has_csv = "waypoints_csv" in mobility
+    if has_list == has_csv:
+        raise ConfigError(f"{path} must have exactly one of waypoints or waypoints_csv")
+    if has_list:
+        raw = mobility["waypoints"]
+        if not isinstance(raw, list):
+            raise ConfigError(f"{path}.waypoints must be a list of [t, x, y, z]")
+        waypoints = [_waypoint(item, f"{path}.waypoints[{i}]") for i, item in enumerate(raw)]
+        source = "config"
+    else:
+        csv_path = _path_from_root(root, mobility["waypoints_csv"], f"{path}.waypoints_csv")
+        waypoints = _read_waypoints_csv(csv_path, f"{path}.waypoints_csv")
+        source = str(csv_path)
+    if len(waypoints) < 2:
+        raise ConfigError(f"{path} needs at least two waypoints")
+    if waypoints[0][0] != 0:
+        raise ConfigError(f"{path}: the first waypoint must be at t=0 (the instant the sender starts)")
+    if waypoints[0][1:] != position:
+        raise ConfigError(
+            f"{path}: the first waypoint {waypoints[0][1:]} must equal position {position} "
+            "(where the node stays while the mesh forms)"
+        )
+    for earlier, later in zip(waypoints, waypoints[1:]):
+        if later[0] <= earlier[0]:
+            raise ConfigError(f"{path}: waypoint times must increase (t={earlier[0]} then t={later[0]})")
+    return {"type": "trajectory", "waypoints": waypoints, "source": source}
+
+
 def _plain_ip(interface: str) -> str:
     return str(ipaddress.ip_interface(interface).ip)
 
@@ -173,6 +247,10 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         experiment.get("drain_seconds", 1.0),
         "experiment.drain_seconds",
     )
+
+    end = _require_string(experiment.get("end", END_SENDER), "experiment.end")
+    if end not in SUPPORTED_END_MODES:
+        raise ConfigError("experiment.end must be 'sender' or 'duration'")
 
     mode = _require_string(protocol.get("mode", "unicast"), "protocol.mode")
     if mode not in SUPPORTED_PROTOCOL_MODES:
@@ -309,6 +387,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "image": _require_string(node.get("image", "drone:latest"), f"nodes[{index}].image"),
             "memory": _require_string(node.get("memory", "512m"), f"nodes[{index}].memory"),
             "txpower": float(_require_number(node.get("txpower", 10), f"nodes[{index}].txpower")),
+            "mobility": _mobility(root, node.get("mobility"), position, f"nodes[{index}].mobility"),
         }
 
     if sender not in normalized_nodes:
@@ -336,6 +415,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "shutdown_timeout_seconds": shutdown_timeout_seconds,
             "network_ready_timeout_seconds": network_ready_timeout_seconds,
             "drain_seconds": drain_seconds,
+            "end": end,
         },
         "protocol": {
             "mode": mode,

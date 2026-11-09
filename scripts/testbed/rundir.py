@@ -15,6 +15,10 @@ RUN_FILES = {
     "summary": "summary.json",
     "timing": "timing.json",
     "metadata": "metadata.json",
+    # D15: written during the protocol phase
+    "positions": "positions.csv",
+    "routes": "routes.csv",
+    "signal": "signal.csv",
 }
 # One PCAP per participant: capture-<node id>.pcap
 PCAP_NAME = "capture-{node}.pcap"
