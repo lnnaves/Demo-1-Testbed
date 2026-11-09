@@ -162,7 +162,7 @@ fim-a-fim; entrega/perda; mobilidade.
   atual. Sugerido rebuild (`scripts/build-docker.sh`); usuária não decidiu.
 - PCAP por participante + `capture.filter` (D12) confirmados no host. Suíte 187
   OK. **Semana 2 concluída.** Imagem refeita (id d7f035f1…, 2026-11-05 15:35).
-- Próximo: semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
+- (05/11) Próximo era a semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
   .551854 → no do gcs .553587 = 1,73 ms.
 - **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
   `git fetch` em 2026-11-08.
@@ -232,7 +232,7 @@ CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 
 ## Referências
 
-- `docs/PROMPT_RETOMADA.md`: prompt para iniciar uma sessão nova (o que ler,
+- `docs/PROMPT_RETOMADA.md` (atualizado 09/11): prompt para iniciar uma sessão nova (o que ler,
   onde paramos, como trabalhar). Atualizar ao fim de cada dia.
 - `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
 
