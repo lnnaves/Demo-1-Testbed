@@ -86,7 +86,9 @@ fim-a-fim; entrega/perda; mobilidade.
   via relay e volta. Plano A da semana 4 validado.
 - **`range` não tem efeito** no modo interference: passado ao `addStation` só
   fixa `wintf.range` (static_range); potência só mudaria via `setRange()`.
-  Alcance direto real ~60 m (logDistance 3.5, 10 dBm, -91 dBm). Sinal medido
+  Alcance direto: **não é ~60 m** (correção 09/11): broadcast/unicast com
+  20/20 entregues a 50, 58, 62 e 70 m; na PoC o ping só falhou quase sempre
+  de ~72 m em diante (os -90 dBm do log são o último valor recebido). Sinal medido
   (poc_200ms.log): 15 m -53..-74, 30 m -68..-82, 45 m -82..-89, 60 m -90 dBm;
   ping falhou com enlace de ~42–57 m. No cenário padrão (0/20/40) todos são
   vizinhos diretos (aceito: é só exemplo).
@@ -164,6 +166,12 @@ fim-a-fim; entrega/perda; mobilidade.
   .551854 → no do gcs .553587 = 1,73 ms.
 - **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
   `git fetch` em 2026-11-08.
+- **2026-11-09: semana 3 implementada** (D13, D14): `testbed/pcap.py` +
+  `testbed/latency.py`, casamento pelo ID do IP, `latency-<orig>-<dest>.csv`
+  + bloco `latency` no summary. REAL confirmado: unicast e broadcast (por
+  receiver), 20 m a 70 m. **Perda NÃO confirmada no real** (nenhuma perda
+  até 70 m; degradação vira atraso): validar na mobilidade. Suíte 202 OK.
+  Configs temporários `poc_*.yml` na raiz (não versionados).
 - 2026-11-08: semana 3 em discussão, nada implementado. Ver D13: proposta de
   casar pacotes pelo **ID do cabeçalho IP** em vez de hash do payload (mesmo
   ID 27575 nos dois PCAPs reais); talvez dispensar `tshark` (Python puro).
@@ -199,10 +207,11 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência
-- [ ] Casamento de pacotes pelo ID do IP (Python) → latência por pacote (CSV),
+- [x] Casamento de pacotes pelo ID do IP (Python) → latência por pacote (CSV),
       mín/mediana/média/p95/p99/máx, jitter, entrega/perda, rajada de perda,
       fora de ordem, duplicados; por sentido e por receiver
-- [ ] Testes com PCAPs sintéticos
+- [x] Testes com PCAPs sintéticos (TESTE AUTOMÁTICO, D14)
+- [ ] Perda confirmada em execução real (adiada para a mobilidade)
 
 ### Semanas 4–5 — mobilidade
 - [ ] `nodes[].mobility`: `static` | `trajectory` (waypoints/CSV)

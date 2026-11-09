@@ -714,6 +714,74 @@ configurável se a usuária pedir.
 - Fase `analyze_network`: 0,001 s.
 - Falta: broadcast (por receiver) e cenário com perda (receiver afastado).
 
+**Confirmação REAL — broadcast (09/11, `logs/exp-02-broadcast/2026-11-09_15-06-00/`,
+`poc_broadcast.log`, config temporário `poc_broadcast.yml`: receivers gcs e
+drone2).** `success`, sem avisos, malha 8,7 s, total 28,2 s.
+- Destino `192.168.123.255`; um CSV por receiver
+  (`latency-drone1-gcs.csv`, `latency-drone1-drone2.csv`), 20/20 em cada,
+  mesmos IDs nos três PCAPs.
+- gcs: mediana 0,929 ms, máx 0,978, jitter 0,040. drone2: mediana 0,986,
+  máx 1,029, jitter 0,045. Conferência independente bate.
+- Observação (hipótese, não verificada): broadcast ~4× mais lento que
+  unicast (0,24 ms) porém mais estável. Provável causa: no 802.11 o
+  broadcast vai na taxa básica (mais lenta) e sem confirmação/reenvio.
+
+**REAL — unicast a 50 m (09/11, `logs/exp-03-distancia/2026-11-09_15-08-58/`,
+`poc_distancia.yml`: gcs 0 m, drone1 50 m, drone2 200 m).** `success`, malha
+9,0 s, **20/20 entregues**, mas mediana 0,922 ms (×4 em relação aos 20 m:
+0,240) e jitter 0,226. Latências: 3 pacotes ~0,25 ms, o resto ~0,9 ms.
+Hipótese (não verificada): em unicast o Wi-Fi reenvia quadros perdidos e
+reduz a taxa de transmissão com sinal fraco; a perda vira latência. Ainda
+sem cenário real com perda. Próximo: broadcast a 50 m (sem reenvio no
+Wi-Fi).
+
+**Hipóteses documentadas (09/11):** `docs/HIPOTESES_2026-11-09.md`
+(broadcast mais lento e estável; a 50 m a perda vira latência). Inclui uma
+alternativa: o BATMAN-adv pode repetir broadcasts e esconder parte da perda
+no teste de broadcast a 50 m. Verificação proposta, só observando:
+`iw dev wlan0 station dump` e captura na `wlan0`.
+
+**REAL — broadcast a 50 m (09/11, `logs/exp-04-distancia-broadcast/2026-11-09_15-12-13/`,
+`poc_distancia_bc.yml`).** `success`, **20/20**, mediana 0,938 ms (igual ao
+broadcast a 20 m), mas dois pacotes atrasados: 2,348 e 4,191 ms; jitter
+0,549 ms (era 0,040 a 20 m). Hipótese (não verificada): a primeira cópia se
+perdeu e chegou uma repetição feita pelo BATMAN-adv alguns ms depois; a
+perda virou atraso também em broadcast. Ainda sem cenário real com perda.
+Próximo: broadcast a 58 m.
+
+**REAL — broadcast a 58 m (09/11, `logs/exp-05-distancia-58m/2026-11-09_15-18-20/`).**
+`success`, **20/20**, mediana 0,937 ms, máx 1,613 ms, jitter 0,108. Mesmo
+perto do limite medido antes (~60 m, -90 dBm para limiar -91), sem perda.
+Hipótese: no wmediumd a passagem de "enlace bom" para "sem enlace" é
+abrupta (faixa intermediária estreita); a aleatoriedade (fading) muda o
+resultado entre execuções. Próximo: 62 m (média do sinal abaixo do
+limiar); se a espera da malha falhar, a perda real fica para a mobilidade
+(semanas 4–5), em que o nó se afasta durante a execução.
+
+**REAL — broadcast a 62 m (09/11, `logs/exp-06-distancia-62m/2026-11-09_15-21-28/`).**
+`success`, **20/20**, mediana 0,924, p95 1,819, máx 3,639 ms, jitter 0,399
+(atrasos de novo, como a 50 m). **Correção:** o "alcance ~60 m" do CLAUDE.md
+era otimista como limite: na PoC de 05/11 (`poc_200ms.log`) o enlace direto
+com o gcs ainda respondia ping às vezes até ~67 m e só falhou quase sempre
+de ~72 m em diante (os -90 dBm registrados são o último valor recebido, não
+o sinal real). Próximo: 70 m.
+
+**REAL — broadcast a 70 m (09/11, `logs/exp-07-distancia-70m/2026-11-09_15-23-48/`).**
+`success`, **20/20**, mediana 0,940, máx 3,198 ms, jitter 0,277. Fim da busca
+por posição fixa (combinado antes de rodar).
+
+**Situação da semana 3 em 09/11.**
+- Confirmado REAL: casamento, latência e entrega em unicast e broadcast
+  (por receiver), CSV e `summary.json`, em 6 execuções (20 m a 70 m).
+- **Não confirmado REAL: perda.** Em nenhuma posição fixa houve pacote
+  perdido; a degradação apareceu como atraso (máx e jitter sobem). A lógica
+  de perda (lost, rajada, taxa) só está coberta por TESTE AUTOMÁTICO.
+  Validação real adiada para a mobilidade (semanas 4–5): nó começa perto e
+  se afasta durante a execução.
+- Hipótese para não haver perda até 70 m: reenvios do Wi-Fi (unicast) e
+  repetições do BATMAN (broadcast), ver `docs/HIPOTESES_2026-11-09.md`; o
+  limite real do enlace direto é maior do que o "~60 m" anotado antes.
+
 ---
 
 ## D14. Testes automáticos: o que valem e quando somem (09/11/2026)
