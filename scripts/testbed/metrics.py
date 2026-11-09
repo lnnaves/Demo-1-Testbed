@@ -277,7 +277,12 @@ def write_summary(path: str, summary: dict[str, Any]) -> None:
         summary_file.write("\n")
 
 
-def write_outputs(config: dict[str, Any], protocol_result: dict[str, Any], capture_result: dict[str, Any]) -> dict[str, Any]:
+def write_outputs(
+    config: dict[str, Any],
+    protocol_result: dict[str, Any],
+    capture_result: dict[str, Any],
+    network_analysis: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     metrics = capture_result.get("metrics", {})
     write_csv(config["output"]["csv"], metrics)
     process_status = protocol_result.get("status", "failed")
@@ -298,6 +303,13 @@ def write_outputs(config: dict[str, Any], protocol_result: dict[str, Any], captu
         warnings.append("processes completed, but no configured UDP traffic was observed on the sender")
     else:
         status = "success"
+    if network_analysis is not None:
+        # Latency/loss between participants (D13) never changes the status:
+        # losing packets is a result of the scenario, not a testbed failure.
+        if network_analysis.get("valid"):
+            warnings.extend(network_analysis.get("warnings", []))
+        else:
+            warnings.append(f"network analysis failed: {network_analysis.get('error')}")
     summary = {
         "experiment": config["experiment"]["id"],
         "mode": config["protocol"]["mode"],
@@ -309,6 +321,7 @@ def write_outputs(config: dict[str, Any], protocol_result: dict[str, Any], captu
         "receivers": protocol_result.get("receivers", []),
         "capture": capture_result,
         "metrics": metrics,
+        "latency": network_analysis,
         "failures": failures,
         "warnings": warnings,
         "outputs": config["output"],

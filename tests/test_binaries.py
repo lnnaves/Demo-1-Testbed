@@ -113,6 +113,18 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertEqual(fake.sent[0][1], ("192.168.123.1", 5000))
 
+    def test_sender_sends_fixed_count_of_identical_datagrams(self):
+        fake = FakeSocket()
+        with patch.object(self.sender.socket, "socket", return_value=fake), \
+                patch.object(self.sender.time, "sleep") as sleep:
+            code, _stdout, stderr = self.run_main(self.sender, self.sender_argv(destination="192.168.123.1"))
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(len(fake.sent), self.sender.PACKET_COUNT)
+        self.assertEqual(sleep.call_count, self.sender.PACKET_COUNT - 1)
+        self.assertEqual({payload for payload, _address in fake.sent}, {b"\x00"})
+
     def test_sender_allows_broadcast_destination(self):
         fake = FakeSocket()
         with patch.object(self.sender.socket, "socket", return_value=fake):

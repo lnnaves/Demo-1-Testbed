@@ -39,9 +39,13 @@ fim-a-fim; entrega/perda; mobilidade.
 - Espera da malha: ping sender→cada receiver até `network_ready_timeout_seconds`,
   depois `ip neigh flush dev bat0`; timeout = falha clara.
 - `drain_seconds` após o sender terminar, antes de parar receivers/captura.
-- Latência: casar pacotes entre PCAPs (sender × receiver) pelo hash do payload
-  com `tshark` (só UDP; tshark remonta fragmentos). Relógio é compartilhado
-  entre containers, timestamps são comparáveis. Broadcast: por receiver.
+- Latência (D13, 09/11): latência **de rede** fim-a-fim (`bat0` → `bat0`,
+  todos os saltos), não de programa a programa. Casar pacotes entre PCAPs
+  pelo **ID do IP** + IPs + protocolo + portas + tamanho, nos dois sentidos,
+  todo pacote IP entre participantes; janela máxima de 5 s; leitura em
+  Python puro (sem tshark). O ID sobe com saltos aleatórios (volta a zero a
+  cada ~2.800 pacotes): ordem vem do horário. Relógio compartilhado entre
+  containers. Broadcast: por receiver.
 - **O testbed expõe o alcance, não garante conectividade** (decidido em
   2026-11-05). O usuário escolhe as posições para descobrir onde o protocolo
   dele deixa de funcionar bem; o testbed registra o que aconteceu (perda,
@@ -100,6 +104,14 @@ fim-a-fim; entrega/perda; mobilidade.
   sender o ARP reply vem 8 µs após o request e o ARP nem aparece no receiver.
   `ip neigh flush` limpa só o ARP do kernel, não o cache DAT da espera da malha.
 - `third-party/containernet/.git` aponta para repositório inexistente (inofensivo).
+
+## Testes automáticos (D14)
+
+- Só execução **REAL** no host valida; testes automáticos (sandbox, mocks,
+  sintéticos) só detectam regressão. Todo relato separa REAL × TESTE
+  AUTOMÁTICO.
+- `tests/` será removida ao fim do projeto: o código do testbed nunca pode
+  depender de `tests/`.
 
 ## Ambiente de trabalho
 
@@ -187,8 +199,9 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência
-- [ ] Casamento de pacotes por hash (tshark) → latência por pacote (CSV),
-      média/mediana/p95/máx, entrega/perda; broadcast por receiver
+- [ ] Casamento de pacotes pelo ID do IP (Python) → latência por pacote (CSV),
+      mín/mediana/média/p95/p99/máx, jitter, entrega/perda, rajada de perda,
+      fora de ordem, duplicados; por sentido e por receiver
 - [ ] Testes com PCAPs sintéticos
 
 ### Semanas 4–5 — mobilidade

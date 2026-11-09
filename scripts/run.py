@@ -8,6 +8,7 @@ import traceback
 from pathlib import Path
 
 from testbed.config import ConfigError, load_config
+from testbed.latency import analyze_run
 from testbed.metadata import collect_metadata, write_metadata
 from testbed.metrics import start_capture, write_outputs
 from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, wait_for_network
@@ -82,8 +83,20 @@ def main() -> int:
         capture_result = capture.stop(config["experiment"]["shutdown_timeout_seconds"])
         capture = None
 
+        phase = timeline.start("analyze_network")
+        network_analysis = analyze_run(config) if capture_result.get("valid") else None
+
         phase = timeline.start("write_outputs")
-        summary = write_outputs(config, protocol_result, capture_result)
+        summary = write_outputs(config, protocol_result, capture_result, network_analysis)
+
+        for direction, result in ((summary.get("latency") or {}).get("directions") or {}).items():
+            total = result["total"]
+            median_ms = total["latency_median_ms"]
+            print(
+                f"{direction}: {total['delivered']}/{total['sent']} delivered, "
+                f"median latency {'-' if median_ms is None else f'{median_ms:.3f} ms'}",
+                file=sys.stderr,
+            )
 
         if summary["status"] == "success":
             print("Experiment completed successfully.", flush=True)

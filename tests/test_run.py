@@ -52,6 +52,10 @@ class RunMainTests(unittest.TestCase):
         write_metadata_patch = patch("run.write_metadata")
         self.mock_write_metadata = write_metadata_patch.start()
         self.addCleanup(write_metadata_patch.stop)
+        # The latency analysis reads real PCAPs; it has its own tests.
+        analyze_patch = patch("run.analyze_run", return_value=None)
+        self.mock_analyze_run = analyze_patch.start()
+        self.addCleanup(analyze_patch.stop)
         timing_patch = patch("run._write_timing")
         self.mock_write_timing = timing_patch.start()
         self.addCleanup(timing_patch.stop)
@@ -224,8 +228,8 @@ class RunMainTests(unittest.TestCase):
         self.assertEqual(self._phases(), [
             ("load_config", "ok"), ("prepare_output", "ok"), ("collect_metadata", "ok"), ("prepare_host", "ok"),
             ("build_network", "ok"), ("wait_network", "ok"), ("start_capture", "ok"),
-            ("execute_protocol", "ok"), ("stop_capture", "ok"), ("write_outputs", "ok"),
-            ("cleanup", "ok"),
+            ("execute_protocol", "ok"), ("stop_capture", "ok"), ("analyze_network", "ok"),
+            ("write_outputs", "ok"), ("cleanup", "ok"),
         ])
         self.assertIn("Total time:", self.stderr.getvalue())
 

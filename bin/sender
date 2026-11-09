@@ -11,6 +11,14 @@ import argparse
 import ipaddress
 import socket
 import sys
+import time
+
+# Fixed example traffic: enough packets to observe loss, jitter and the IP
+# identification field changing from packet to packet. The payload is always
+# the same byte on purpose: identical payloads are common in real protocols
+# and the testbed must not depend on payload content to tell packets apart.
+PACKET_COUNT = 20
+PACKET_INTERVAL_SECONDS = 0.05
 
 
 def parse_arguments():
@@ -21,8 +29,11 @@ def parse_arguments():
 
 
 def tx(sock, destination, port):
-    """Send a single minimal datagram so the platform can be smoke tested."""
-    sock.sendto(b"\x00", (destination, port))
+    """Send a fixed number of minimal datagrams at a fixed interval."""
+    for index in range(PACKET_COUNT):
+        if index:
+            time.sleep(PACKET_INTERVAL_SECONDS)
+        sock.sendto(b"\x00", (destination, port))
 
 
 def is_ipv4_address(value):

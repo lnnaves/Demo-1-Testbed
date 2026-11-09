@@ -498,3 +498,252 @@ transporta o pacote IP sem alterar o cabeçalho.
   `summary.json`); aviso quando a latência máxima se aproxima do
   `drain_seconds`.
 - A confirmar no host: IP-ID não nulo e crescente com vários pacotes.
+
+**Explicações dadas (09/11).**
+- **PCAP sintético é só para os testes automáticos**, nunca para a medida.
+  A latência sempre sai dos PCAPs reais do host. O sintético serve para
+  provar a lógica do casamento com casos difíceis de provocar na rede real
+  (perda, duplicata, ID que volta a zero, pacote fragmentado), sem docker e
+  sem sudo, no sandbox.
+- **tshark × Python é uma escolha independente do identificador.** O tshark
+  também extrai o ID do IP (`ip.id`). A usuária quer usar o tshark.
+  Consequência: o sandbox não tem tshark, então os testes que o chamam só
+  rodam no host (no sandbox, são pulados ou usam a saída do tshark gravada).
+- **Outras formas de medir latência** (além de casar pacotes em PCAPs):
+  RTT com ping (mede a rede, não o protocolo); timestamps gravados pelo
+  próprio programa do usuário (exige a colaboração dele); ferramentas de
+  medição ativa como iperf3/OWAMP (medem a rede, não o protocolo);
+  rastreamento no kernel com eBPF (send→recv do socket, inclui a pilha;
+  complexo). Também importa **onde** se captura: em `bat0` a medida é
+  rede-a-rede (não inclui o tempo dentro do programa).
+
+**Decidido (09/11): o testbed mede latência de rede e perda; não mede
+latência de programa a programa.**
+- Por quê: os meios práticos de medir de programa a programa exigem que o
+  programa grave horários e que o testbed leia a saída dele, o que fere o
+  princípio de não interferir nem interpretar o protocolo. O eBPF só observa
+  (não fere o princípio), mas é complexo demais para o prazo.
+- A perda **não substitui** a latência de programa a programa: ela já vinha
+  de graça do mesmo casamento (pacote enviado sem par no receiver = perdido)
+  e já estava no plano. As saídas da semana 3 são as duas: latência de rede e
+  entrega/perda, por receiver.
+- Limite a documentar: a perda é medida na interface (`bat0`). Um pacote que
+  chega à interface mas é descartado antes de o programa ler (ex.: buffer do
+  socket cheio) conta como **entregue**.
+- Resumo para o orientador: `docs/LATENCIA_REDE_X_PROGRAMA.md` (09/11).
+
+**Ainda aguardando ok da usuária (09/11).** Substitui a "Recomendação
+atual" acima onde conflitar (o Python puro saiu: a usuária prefere o tshark).
+
+| # | Decisão | Proposta |
+|---|---|---|
+| 1 | Identificar o pacote | ID do IP + IPs + portas + tamanho; casa com o primeiro pacote ainda sem par que chegou depois do envio (resolve o ID que volta a zero) |
+| 2 | Ferramenta | `tshark` (pré-requisito novo no host); testes que o chamam são pulados no sandbox |
+| 3 | Tráfego analisado | ~~Só UDP do sender para `protocol.port`~~ → revisado abaixo: todo pacote IP entre participantes, nos dois sentidos |
+| 4 | Saídas | `latency-<receiver>.csv` (um pacote por linha) + bloco `latency` no `summary.json` (média, mediana, p95, mín, máx, entregues, perdidos); aviso se a latência máxima se aproximar do `drain_seconds` |
+| 5 | Sender de exemplo | Enviar 20 pacotes com 50 ms entre eles (hoje envia 1), para ver perda e confirmar no host que o ID muda; argumentos não mudam |
+
+**Correção do entendimento (09/11).** A usuária não pediu o `tshark` na
+análise: "usar o tshark" era só para **visualizar** os PCAPs. Fica assim:
+- a captura continua com `tcpdump` (como hoje);
+- a análise lê o PCAP em **Python puro** (nenhum pré-requisito novo no host);
+- `tshark`/Wireshark são sugestão ao usuário para inspecionar os `.pcap`,
+  não dependência do testbed.
+A decisão 2 da tabela acima passa a ser "Python puro".
+
+**Em discussão (09/11): validar com execuções reais em vez de PCAPs
+sintéticos.** A usuária perdeu a noção do que é real e do que é teste e
+propôs validar tudo com execuções reais que ela roda no host. Ponto a
+decidir: o que fazer com testes automáticos (os 187 atuais e os novos).
+
+**Revisão do item 3 (09/11, proposta).** A usuária lembrou que a D12 decidiu
+**não** filtrar só UDP (o PQ-EDHOC usa CoAP, e o protocolo pode usar outros
+tráfegos). Esclarecimento:
+- A D12 trata da **captura**: continua gravando tudo. Isso não mudou.
+- O "só UDP" do item 3 tratava da **análise de latência** e veio do plano
+  original (`CLAUDE.md`: "hash do payload com tshark, só UDP"). Era
+  necessário para casar por payload: no TCP um envio do programa não vira um
+  pacote. Não foi uma decisão nova; foi herdado sem reavaliar. Erro do
+  assistente.
+- Com o casamento pelo **ID do IP**, a restrição deixa de ser necessária:
+  qualquer pacote IP (UDP, TCP, ICMP) tem ID e pode ser casado entre as
+  capturas. O que se mede é a latência e a perda **de cada pacote IP na
+  rede**, não de cada mensagem do programa (no TCP, uma retransmissão é outro
+  pacote; o pacote original perdido conta como perdido, mesmo que o TCP
+  recupere o dado).
+- Ponto novo: o EDHOC é um diálogo (mensagens nos dois sentidos). A análise
+  deve casar pacotes **nos dois sentidos** entre cada par de participantes,
+  não só sender → receiver.
+- Proposta nova para o item 3: analisar todo pacote IP trocado entre
+  participantes, nos dois sentidos, com resultados separados por sentido e
+  por fluxo (protocolo + portas). ARP não é IP e fica fora (é do BATMAN/kernel).
+
+**Quais métricas (09/11, proposta).** A usuária perguntou se média, mediana
+e p95 são as ideais. Resposta do assistente:
+- Média sozinha engana: um pacote lento (ex.: troca de rota) puxa a média.
+  Mediana = caso típico; p95 = "quase pior caso"; máximo = pior caso.
+- p95 só tem sentido com amostra suficiente: com 20 pacotes é praticamente o
+  2º maior valor. Regra proposta: sempre mostrar `n`; p95 só com n ≥ 20 e
+  p99 só com n ≥ 100 (senão `null`).
+- Faltavam métricas importantes para drones/malha:
+  - **jitter** (variação da latência entre pacotes consecutivos, média do
+    |diferença|, como IPDV da RFC 3393): importa para controle e tempo real;
+  - **rajada de perda** (maior sequência de pacotes perdidos seguidos): 10
+    perdas espalhadas ≠ 10 seguidas; para um handshake, uma rajada derruba a
+    sessão;
+  - **fora de ordem** (pacote que chega antes de um enviado antes dele):
+    acontece quando a rota muda (mobilidade/multi-hop);
+  - **duplicados**.
+- Desvio padrão: útil para repetições (semana 6), menos que o jitter aqui.
+- Tempo do handshake completo (ex.: EDHOC) seria a métrica mais natural para
+  o protocolo, mas exige saber o que é um handshake, ou seja, interpretar o
+  protocolo: fora do escopo (D1). O CSV por pacote permite ao usuário
+  calcular isso por conta própria.
+- Latência ao longo do tempo (por janela) fica para as semanas 4–5, cruzada
+  com as posições.
+
+**Ainda é preciso casar pacotes? (09/11).** Sim. Todas as métricas novas
+dependem de saber qual pacote do receiver é qual do sender: latência e
+jitter (diferença de horário do mesmo pacote), rajada de perda (quais se
+perderam), fora de ordem (a ordem de envio de cada um) e duplicados (o mesmo
+pacote 2 vezes). Sem casamento só sobra contar (enviados − recebidos), que
+dá a taxa de perda aproximada e erra quando há duplicados.
+
+**Etapa 0 (09/11): sender de exemplo com 20 pacotes.** `bin/sender` envia
+`PACKET_COUNT = 20` datagramas de 1 byte (`\x00`, sempre igual, de propósito:
+payload idêntico é o caso que o hash não resolve), com
+`PACKET_INTERVAL_SECONDS = 0,05` entre eles (~0,95 s no total, menor que o
+`drain_seconds: 1`). Argumentos inalterados. TESTE AUTOMÁTICO: 188 OK (1 novo,
+com socket falso). Falta a confirmação REAL: ID do IP não nulo e diferente em
+cada um dos 20 pacotes, igual entre sender e receiver.
+
+**Confirmação REAL da etapa 0 (09/11, `logs/exp-01-unicast/2026-11-09_14-39-09/`,
+PCAPs decodificados com Python; `poc_ipid.log`).** `success`, malha pronta em
+8,1 s, total 28,5 s.
+- PCAP do sender: ARP request + reply (9 µs, DAT) e **20** pacotes UDP
+  `192.168.123.2:37347 → .1:5000`, 29 bytes, DF ligado.
+- PCAP do gcs: os **20**, com os **mesmos IDs**, na mesma ordem. Nenhuma perda.
+- IDs: 60210, 60214, 60250, … 60655. Nenhum zero, nenhum repetido.
+- Latência calculada à mão (casando pelo ID): mediana 0,25 ms, média 0,35 ms,
+  mín 0,15 ms, máx 1,18 ms (3 pacotes acima de 0,9 ms puxam a média: exemplo
+  real de por que a média sozinha engana).
+
+**Correção (09/11).** O ID **não** sobe de 1 em 1: os saltos foram 4, 36, 43,
+… (média ~23). O Linux soma um incremento aleatório ao contador (proteção
+contra ataques que adivinham o ID). Consequências:
+- o ID volta a zero bem antes de 65.536 pacotes: neste ritmo, a cada ~2.800
+  pacotes (~140 s a 20 pacotes/s), não "só após 65.536";
+- o ID não serve para saber a ordem nem para contar pacotes "faltando" pelo
+  salto; a ordem vem do horário de envio no PCAP do sender (já era o plano);
+- risco: se um pacote se perde e, depois da volta, outro pacote com o mesmo
+  ID (e mesmos IPs/portas/tamanho) chega, o casamento pode ligá-los, com uma
+  latência enorme e falsa. Proposta: **janela máxima de casamento** (o pacote
+  do receiver só vale se chegar até X s após o envio), bem menor que o tempo
+  de volta do ID.
+
+**Explicações sobre a janela (09/11).**
+- "5 s" não é padrão de nenhuma norma: é um valor sugerido pelo assistente
+  para o limite de espera do casamento.
+- Por que não casar só pelo IP: o IP identifica a **máquina**, não o pacote.
+  Na execução real os 20 pacotes tinham os mesmos IPs, portas e tamanho; só
+  o ID e o horário mudavam. O IP faz parte da chave, mas sozinho não separa
+  pacotes.
+- A janela **não força entrega** (o testbed não reenvia nem segura nada). Ela
+  existe para que uma perda real **não seja escondida** por um casamento
+  errado (pacote perdido ligado a outro pacote com o mesmo ID, minutos
+  depois). Alinhado com o objetivo da usuária: mostrar onde o protocolo
+  começa a perder pacotes.
+
+**Contar × casar (09/11, em discussão).** A usuária propôs só contar
+(pacotes que saíram × que chegaram, por IP), já que cada usuário conhece os
+pacotes do próprio protocolo. Explicação do assistente:
+- Contar dá a taxa de perda (aproximada: duplicados e tráfego extra entram
+  na conta). Não dá **latência** (prioridade do projeto, CLAUDE.md), jitter,
+  rajada de perda nem fora de ordem: todos precisam saber qual pacote é qual.
+- Casar pelo ID **não depende do protocolo**: o ID é posto pelo kernel em
+  todo pacote IP, seja qual for o programa. O testbed não precisa conhecer os
+  pacotes do usuário; só reconhece "o mesmo pacote IP" nas duas capturas.
+- O usuário sabe o que **enviou**, mas não sabe o que **chegou** nem quando:
+  isso só a captura dos dois lados mostra.
+Opções levadas à usuária: (A) só contar; (B) casar pelo ID (latência + perda
++ demais métricas).
+
+**Decidido (09/11): opção (B), casar pelo ID do IP.** Esclarecido também:
+neste testbed, "latência fim-a-fim" = latência **de rede** de ponta a ponta:
+da interface `bat0` do nó que envia à `bat0` do nó que recebe, passando por
+todos os saltos (relays) no caminho. Não inclui o tempo dentro dos programas
+(ver `docs/LATENCIA_REDE_X_PROGRAMA.md`). Janela máxima de casamento: 5 s,
+constante no código por enquanto (`MATCH_WINDOW_SECONDS`), a tornar
+configurável se a usuária pedir.
+
+**Etapas 1 a 3 implementadas (09/11; aguardando confirmação REAL).**
+- `scripts/testbed/pcap.py`: leitor de PCAP em Python puro (PCAP clássico
+  µs/ns, Ethernet/VLAN, Linux SLL/SLL2, raw). Extrai horário, IPs,
+  protocolo, portas, ID do IP e tamanho; agrupa fragmentos pelo ID
+  (envio = 1º fragmento, chegada = último). Nunca lê o payload.
+- `scripts/testbed/latency.py`: casamento por (IPs, protocolo, portas,
+  tamanho, ID) com janela de 5 s; todo pacote IPv4 entre participantes, nos
+  dois sentidos; broadcast/multicast conta para cada receiver. Métricas por
+  sentido (`total`) e por fluxo (`flows`): sent, delivered, lost, loss_rate,
+  max_loss_burst, out_of_order, duplicates, latency min/median/mean/p95
+  (n ≥ 20)/p99 (n ≥ 100)/max em ms (arredondadas a 1 µs) e jitter_mean_ms.
+  Contagem do que ficou de fora em `ignored` (não IPv4, malformado, fora dos
+  participantes).
+- Saídas: `latency-<origem>-<destino>.csv` (um pacote por linha) e bloco
+  `latency` no `summary.json`; aviso se a latência máxima ≥ 50% do
+  `drain_seconds`. Fase nova `analyze_network` no `timing.json`; resumo por
+  sentido impresso no terminal.
+- A análise **nunca muda o status** da execução: perda é resultado do
+  cenário, não falha do testbed. PCAP ilegível vira aviso.
+- Rodada (só leitura) sobre os PCAPs REAIS de 09/11: 20/20, mediana 0,251 ms,
+  média 0,354 ms, máx 1,182 ms, p95 1,058 ms, jitter 0,160 ms — igual à conta
+  manual.
+- TESTE AUTOMÁTICO: 202 OK (14 novos em `tests/test_latency.py`, com PCAPs
+  sintéticos, e 1 em `test_metrics.py`).
+
+**Confirmação REAL — unicast (09/11, `logs/exp-01-unicast/2026-11-09_15-02-42/`,
+`poc_latency.log`).** `success`, sem avisos, malha pronta em 9,0 s, total
+28,8 s. Terminal: `drone1->gcs: 20/20 delivered, median latency 0.240 ms`.
+- `latency-drone1-gcs.csv` com 20 linhas, todas `delivered`, IDs 59920 …
+  60498 (saltos aleatórios, como antes).
+- `summary.json`: mín 0,187, mediana 0,240, média 0,344, p95 0,873, máx
+  1,166 ms; jitter 0,157 ms; p99 `null` (n < 100); `ignored`: 2 não IPv4
+  (ARP) no sender.
+- Conferência independente (decodificação crua dos PCAPs, casando só pelo
+  ID): 20/20, mediana 0,240, máx 1,166 ms. Bate.
+- Fase `analyze_network`: 0,001 s.
+- Falta: broadcast (por receiver) e cenário com perda (receiver afastado).
+
+---
+
+## D14. Testes automáticos: o que valem e quando somem (09/11/2026)
+
+**Contexto: quando surgiu.** Na discussão da semana 3 (D13), a proposta de
+gerar PCAPs sintéticos fez a usuária perder a noção do que era real e do que
+era teste. Ela propôs validar tudo com execuções reais e aceitou manter os
+testes automáticos com duas garantias.
+
+**Garantia 1: só a execução real valida.**
+- Teste automático (no sandbox do assistente, com mocks e dados sintéticos)
+  **não confirma** nada. Serve só para avisar se uma mudança quebrou algo que
+  já funcionava.
+- Todo relato do assistente separa explicitamente:
+  - **REAL**: rodado pela usuária no host, com o resultado lido dos arquivos;
+  - **TESTE AUTOMÁTICO**: rodado no sandbox, sintético ou com mock.
+- Um item do plano só é marcado como concluído depois da confirmação
+  **REAL** (regra que já valia: "cada fase fecha com execução real").
+- Dados sintéticos nunca entram nas saídas do testbed nem em `logs/`.
+
+**Garantia 2: os testes serão removidos ao fim do projeto, sem afetar o
+testbed.**
+- Verificado em 09/11: nenhum arquivo de `scripts/`, `bin/` ou `dockerfiles/`
+  importa ou usa algo de `tests/`. Apagar a pasta `tests/` não muda nenhum
+  comportamento do testbed.
+- Regra daqui em diante: o código do testbed **nunca** depende de `tests/`
+  (nada de importar helpers de teste, nem dados de teste usados em execução).
+  PCAPs sintéticos, se houver, ficam dentro de `tests/`.
+- Na remoção, além de apagar `tests/`, só é preciso atualizar os textos que
+  mencionam testes (README, CLAUDE.md, RELATORIO_TECNICO). Isso é documentação,
+  não funcionamento.
+
+**Onde.** `tests/` (todos os testes). Regra registrada também no `CLAUDE.md`.
