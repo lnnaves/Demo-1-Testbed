@@ -61,6 +61,23 @@ class MetadataTests(unittest.TestCase):
         self.assertTrue(data["host"]["kernel"])
         self.assertIn("cannot", data["randomness"])
 
+    def test_trajectory_csv_copies_are_fingerprinted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "trajectory-dr1.csv"
+            copy.write_bytes(b"t,x,y,z\n0,1,0,0\n")
+            config = _config()
+            config["nodes"]["dr1"]["mobility"] = {"type": "trajectory", "source": "/orig/dr1.csv"}
+            config["output"] = {"trajectories": {"dr1": str(copy)}}
+            with patch("scripts.testbed.metadata._run", side_effect=_fake_run), \
+                 patch("scripts.testbed.metadata._batman_version", return_value="2024.0"):
+                data = collect_metadata(config, argv=[])
+
+        self.assertEqual(data["trajectories"]["dr1"], {
+            "source": "/orig/dr1.csv",
+            "copy": str(copy),
+            "sha256": hashlib.sha256(b"t,x,y,z\n0,1,0,0\n").hexdigest(),
+        })
+
     def test_git_reads_repository_owned_by_another_user(self):
         with patch("scripts.testbed.metadata._run", side_effect=_fake_run) as run:
             collect_metadata(_config(), argv=[])

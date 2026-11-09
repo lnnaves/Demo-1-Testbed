@@ -97,6 +97,17 @@ Observação (`signal.csv` e `routes.csv`):
 testbed, 199/199 entregues, p99 3,2 ms (passa a existir com n ≥ 100), total
 39,0 s.
 
+### 4.3 Confirmações extras, à noite
+
+- **Estouro de tempo** (`poc_timeout.yml`, `end: sender`, 5 s): `failed`
+  com "sender timed out", `ended_by: testbed`, análise 100/100.
+- **Trajetória de CSV + multi-hop** (`poc_multihop_csv.yml`, relay parado a
+  75 m): rota passou a ser via drone2 a ~124 m; **615/698 entregues** (sem
+  relay: 407/698); maior rajada 8 (sem relay: 76).
+- **Novo, aprovado:** cópia do CSV de trajetória na pasta da execução
+  (`trajectory-<nó>.csv`) e sha256 no `metadata.json`. TESTE AUTOMÁTICO 219
+  OK; falta confirmação real.
+
 ## 5. Hipóteses e achados novos
 
 - **Taxa do Wi-Fi (hipótese):** mediana ~0,9 ms quando o Wi-Fi usou 7,2
@@ -118,8 +129,6 @@ taxa) e o commit destes documentos.
 
 - **Semana 5:** o testbed gerar sozinho a tabela da seção 4.1 (latência e
   perda por janela de tempo × posição).
-- `end: sender` com timeout real ainda não foi exercitado no host (só em
-  TESTE AUTOMÁTICO).
 - Os `poc_*.yml` da manhã não têm `end`; se rodados de novo com o sender
   contínuo, terminam em "sender timed out" após 60 s. Continuam válidos como
   registro.

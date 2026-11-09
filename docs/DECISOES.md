@@ -1014,3 +1014,76 @@ PCAP do sender (`analyze_pcap`). Um protocolo só TCP, ou que use outra porta,
 sairia `inconclusive` mesmo com tráfego. A análise de latência/perda não é
 afetada. Rever na semana 6 (contrato novo). O `validate_scenario.py` não foi
 rodado no host depois das semanas 3–4.
+
+**Por que 4 itens estão sem confirmação real e como confirmar (09/11).**
+
+| Item | Por que não foi confirmado | Como confirmar |
+|---|---|---|
+| `end: sender` estourando o tempo | Todas as execuções reais terminaram bem; o caminho de falha só rodou em teste automático. (O sender terminar sozinho com `end: sender` já foi real: execuções da manhã de 09/11, antes do sender contínuo.) | `poc_timeout.yml`: config padrão com `end: sender` e 5 s; o sender contínuo nunca termina, então o esperado é **falha** "sender timed out", `ended_by: testbed` |
+| Trajetória de CSV | A validação usou `waypoints` no YAML | `poc_multihop_csv.yml` + `poc_trajetoria_drone1.csv` (mesma trajetória da exp-08) |
+| Multi-hop | Em todas as execuções o enlace foi direto (drone2 a 200 m ou todos perto) | No mesmo `poc_multihop_csv.yml`: drone2 parado a 75 m (relay). Esperado: em `routes.csv` o drone1 passa a usar `next_hop = drone2` para o gcs quando se afasta, e a perda fica bem menor que na exp-08 |
+| TCP e protocolo real | Os binários de exemplo só usam UDP; não há programa TCP nem os binários do PQ-EDHOC no testbed. O contrato atual exige `--destination/--address/--port` (o PQ-EDHOC provavelmente usa outros argumentos: semana 6, ou um script adaptador) | Decisão da usuária: (a) esperar os binários do PQ-EDHOC; (b) um par sender/receiver TCP de exemplo, temporário |
+
+**Lacuna encontrada ao preparar o teste de CSV.** A pasta da execução
+recebe uma cópia do `config.yml`, mas **não** do CSV da trajetória: se o
+CSV mudar depois, o resultado deixa de ser reproduzível. Proposta (aguarda
+ok): copiar o CSV para a pasta da execução e registrar o sha256 no
+`metadata.json`.
+
+**Confirmação REAL — `end: sender` estourando o tempo (09/11,
+`logs/exp-10-timeout/2026-11-09_16-44-06/`, `poc_timeout.yml`).** Como
+esperado: status `failed`, falha única "sender timed out"; sender
+`ended_by: testbed` em 5,06 s (100 enviados; exit 0 porque o sender de
+exemplo trata o SIGTERM); receiver `ended_by: testbed`; a análise rodou
+assim mesmo: 100/100, mediana 0,230 ms (conferência independente bate).
+
+**Confirmação REAL — trajetória de CSV e multi-hop (09/11,
+`logs/exp-09-multihop-csv/2026-11-09_16-44-40/`, `poc_multihop_csv.yml` +
+`poc_trajetoria_drone1.csv`; mesma trajetória da exp-08, com drone2 parado a
+75 m como relay).**
+- CSV: `positions.csv` segue o arquivo (x = 85 m em t = 15 s; 150 m no fim).
+- **Multi-hop:** em `routes.csv`, a melhor rota do drone1 para o gcs foi
+  direta até x ≈ 120 m e passou a ser **via drone2** em t = 24 s (x ≈ 124 m),
+  ficando assim até o fim (TQ ~186).
+- **615/698 entregues (11,9% de perda)**, contra 407/698 sem relay (exp-08);
+  maior rajada 8 (era 76). Conferência independente bate.
+
+| Distância | Sem relay (exp-08) | Com relay (exp-09) | Mediana (exp-09) |
+|---|---|---|---|
+| 20–70 m | 229/229 | 231/231 | ~0,24 ms |
+| 70–90 m | 83/92 | 90/92 | ~2,5 ms |
+| 90–120 m | 77/137 | 67/137 | 31–105 ms |
+| 120–150 m | 14/137 | 131/138 | 1,0–3,2 ms |
+| 150 m parado | 2/101 | 96/100 | 3,2 ms |
+
+- Leitura: entre 90 e 120 m o BATMAN ainda insistia no enlace direto
+  degradado (perda e ~100 ms); depois de trocar para o relay, a entrega
+  voltou a ~95% com latência de 1–3 ms (dois saltos). A troca demorou mesmo
+  com `orig_interval` 200 ms: o momento da troca é um resultado do cenário.
+
+**Implementado (09/11; aprovado pela usuária): cópia e impressão digital do
+CSV de trajetória.** `rundir.py` copia cada `waypoints_csv` para
+`trajectory-<nó>.csv` na pasta da execução; `metadata.json` ganha
+`trajectories.<nó>` com `source`, `copy` e `sha256`. TESTE AUTOMÁTICO: 219 OK
+(2 novos). Teste a seco com `poc_multihop_csv.yml` no sandbox: sha256 igual
+ao `sha256sum` do arquivo. Falta confirmação REAL (próxima execução com
+CSV).
+
+**Pergunta da usuária: "só pelo UDP é possível fazer a captura?" (09/11).**
+Não. Resposta registrada:
+- **Captura:** o tcpdump grava todo o tráfego da `bat0`, de qualquer
+  protocolo (UDP, TCP, ICMP, ARP, IPv6, multicast). Nada é filtrado por
+  padrão (D12).
+- **Análise de latência/perda:** qualquer pacote **IPv4** (UDP, TCP, ICMP...),
+  nos dois sentidos, pelo ID do IP (D13). Confirmado no real só com UDP.
+- **O que ainda é específico de UDP:** o critério do status
+  (`success`/`inconclusive`: UDP em `protocol.port` no sender), o
+  `metrics.csv` antigo e os binários de exemplo.
+- **Protocolos citados:** EDHOC e PQ-EDHOC normalmente rodam sobre CoAP/UDP
+  (unicast, diálogo nos dois sentidos); TESLA (autenticação de broadcast)
+  normalmente usa UDP broadcast/multicast (modo broadcast, resultado por
+  receiver). Protocolos sobre TCP (ex.: TLS) também são analisados, por
+  pacote IP.
+- **Cuidados:** IPv6 é capturado mas não entra na análise (bibliotecas CoAP
+  às vezes usam IPv6 por padrão; o testbed entrega endereços IPv4); no TCP a
+  medida é por pacote IP (reenvio = outro pacote), não por mensagem.

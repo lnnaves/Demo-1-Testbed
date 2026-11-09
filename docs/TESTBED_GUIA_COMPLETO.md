@@ -275,6 +275,7 @@ nomes sempre iguais, para comparar execuções e processar por script.
 | `positions.csv` | Posição de cada nó a cada 0,1 s | Semana 4 (D15) |
 | `routes.csv` | Tabela do BATMAN de cada nó a cada 1 s | Semana 4 (D15) |
 | `signal.csv` | Sinal, taxa, falhas do Wi-Fi por vizinho a cada 1 s | Semana 4 (D15) |
+| `trajectory-<nó>.csv` | Cópia do CSV de trajetória usado (só quando a trajetória vem de CSV); o `metadata.json` guarda o sha256 | Semana 4 (D15) |
 
 Exemplo de `latency-drone1-gcs.csv`:
 
@@ -395,7 +396,25 @@ Limite da medida: um pacote que chega à `bat0` do receiver, mas que o
 programa não consegue ler (por exemplo, buffer cheio), conta como
 **entregue**. Ver isso exigiria olhar dentro do programa.
 
-### 7.5 Tempos e metadados
+### 7.5 Que protocolos podem ser medidos
+
+A captura **não** é restrita a UDP: o tcpdump grava todo o tráfego da
+`bat0` (UDP, TCP, ICMP, ARP, IPv6, multicast). A análise de latência e perda
+casa qualquer pacote **IPv4** pelo ID do IP, nos dois sentidos.
+
+| Protocolo | Transporte usual | Como entra no testbed |
+|---|---|---|
+| EDHOC / PQ-EDHOC | CoAP sobre UDP | Unicast; diálogo nos dois sentidos (initiator = sender, responder = receiver) |
+| TESLA | UDP broadcast/multicast | Modo broadcast; resultado por receiver |
+| Protocolos sobre TCP (ex.: TLS) | TCP | Analisados por pacote IP (um reenvio do TCP é outro pacote) |
+
+O que ainda é específico de UDP: o critério do status (ver seção 6), o
+`metrics.csv` antigo e os binários de exemplo. Cuidado com IPv6: é capturado,
+mas não entra na análise (algumas bibliotecas CoAP usam IPv6 por padrão; o
+testbed entrega endereços IPv4 ao programa). Confirmado no real até agora:
+só UDP.
+
+### 7.6 Tempos e metadados
 
 - **Tempos (D10):** durações com relógio monotônico (imune a ajustes de
   relógio); instantes em segundos Unix, na mesma base dos PCAPs.
@@ -430,7 +449,10 @@ Implementada na semana 4 (D15).
   padrão continua 1000 ms; os exemplos com mobilidade usam 200 ms.
 
 Com `positions.csv` e `latency-*.csv`, é possível dizer: "o pacote X se
-perdeu quando o drone estava a 84 m". Hoje esse cruzamento é feito à mão; a
+perdeu quando o drone estava a 84 m". Quando a trajetória vem de um CSV, uma
+cópia dele fica na pasta da execução (`trajectory-<nó>.csv`) e sua
+impressão digital (sha256) vai para o `metadata.json`, para que o resultado
+continue reproduzível mesmo que o arquivo original seja editado. Hoje esse cruzamento é feito à mão; a
 semana 5 o automatiza.
 
 ---
@@ -515,6 +537,11 @@ broadcast reais em `success`.
 - Registro de posições, rotas do BATMAN e sinal de rádio.
 - Execução real com o drone indo de 20 m a 150 m: **primeira perda real**,
   começando a 84 m.
+- Mesma trajetória lida de CSV e com um relay a 75 m: **primeiro multi-hop
+  real** (o BATMAN passou a rotear via relay a ~124 m) e perda caindo de
+  41,7% para 11,9%.
+- Estouro de tempo com `end: sender` confirmado como falha "sender timed
+  out".
 
 ---
 
@@ -558,7 +585,32 @@ pacotes.
 Leitura: a latência sobe primeiro (~70 m); a perda começa a 84 m e cresce até
 quase 100%; não há corte abrupto.
 
-### 11.3 Hipóteses em aberto
+### 11.3 Com relay: multi-hop (mesma trajetória, drone2 parado a 75 m)
+
+Trajetória lida de um CSV. 698 enviados, **615 entregues (11,9% de perda)**,
+maior rajada de 8 pacotes. No `routes.csv`, a melhor rota do drone1 para o
+gcs foi direta até ~120 m e passou a ser **via drone2** a ~124 m.
+
+| Distância | Sem relay | Com relay | Mediana com relay |
+|---|---|---|---|
+| 20–70 m | 229/229 | 231/231 | ~0,24 ms |
+| 70–90 m | 83/92 | 90/92 | ~2,5 ms |
+| 90–120 m | 77/137 | 67/137 | 31–105 ms |
+| 120–150 m | 14/137 | 131/138 | 1,0–3,2 ms |
+| 150 m (parado) | 2/101 | 96/100 | 3,2 ms |
+
+Leitura: entre 90 e 120 m o BATMAN ainda usava o enlace direto degradado;
+depois de trocar para o relay, a entrega voltou a ~95% com 1–3 ms (dois
+saltos). O momento da troca é um resultado do cenário (aqui com anúncios a
+cada 200 ms).
+
+### 11.4 Estouro de tempo
+
+Config padrão com `end: sender` e limite de 5 s (o sender de exemplo nunca
+termina sozinho): status `failed`, falha "sender timed out", sender e
+receiver `ended_by: testbed`. A análise rodou assim mesmo (100/100).
+
+### 11.5 Hipóteses em aberto
 
 Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 - **Taxa do Wi-Fi:** ~0,9 ms quando o quadro sai numa taxa baixa (broadcast
@@ -581,15 +633,18 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
   metadados.
 - PCAP por participante.
 - Latência e perda de rede por sentido, por receiver e por fluxo.
-- Mobilidade por trajetória, fim por duração, registro de posições, rotas e
-  sinal.
+- Mobilidade por trajetória (no YAML e em CSV), fim por duração e por
+  estouro de tempo, registro de posições, rotas e sinal.
+- Multi-hop: troca de rota para um relay durante o movimento.
 
 ### Ainda não exercitado no real
 
-- `end: sender` estourando o tempo (só em teste automático).
-- Trajetória vinda de CSV (só em teste automático).
-- Protocolo real (PQ-EDHOC) e tráfego TCP.
-- Multi-hop de fato (nos testes até agora o enlace foi direto).
+- Protocolo real (EDHOC, PQ-EDHOC, TESLA) e tráfego TCP: os binários de
+  exemplo só usam UDP.
+- Análise nos dois sentidos (só em teste automático; os binários de exemplo
+  só enviam num sentido).
+- Cópia do CSV de trajetória na pasta da execução (implementada depois da
+  última execução com CSV; só em teste automático).
 
 ### Limitações conhecidas
 

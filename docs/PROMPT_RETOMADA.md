@@ -38,7 +38,12 @@ inteiro, para economizar contexto.
      processos, sender de exemplo contínuo (50 ms até SIGTERM).
    - REAL: drone1 de 20 a 150 m em 30 s -> 407/698 entregues, perda a partir
      de 84 m, latência sobe antes (~70 m). Config padrão (10 s): 199/199.
-   - TESTE AUTOMÁTICO: 217 OK.
+     Mesma trajetória via CSV com relay a 75 m -> multi-hop real (rota via
+     drone2 a ~124 m), 615/698. end: sender estourando -> "sender timed out".
+   - Cópia do CSV de trajetória na pasta + sha256 no metadata: implementada
+     e aprovada, falta confirmação REAL (rode poc_multihop_csv.yml de novo).
+   - Ainda não real: protocolo real/TCP e análise nos dois sentidos.
+   - TESTE AUTOMÁTICO: 219 OK.
    - Entre 09/11 e 16/11 a usuária só estudou o testbed e apresentou aos
      colegas e ao orientador. PERGUNTE se surgiram dúvidas, críticas ou
      pedidos dessa apresentação ANTES de seguir: eles podem mudar o plano.
@@ -58,8 +63,8 @@ inteiro, para economizar contexto.
    scripts/testbed/observer.py e scripts/run.py. Dados reais para conferir:
    logs/exp-08-mobilidade/2026-11-09_16-14-38/.
    Pendências que podem entrar: escolher batman_orig_interval_ms padrão para
-   mobilidade; exercitar no real end: sender com timeout e waypoints_csv;
-   push/PR das semanas 3 e 4 (só se ela pedir).
+   mobilidade; status success/inconclusive ainda depende de UDP na porta do
+   config; IPv6 fora da análise; PR das semanas 3 e 4 (só se ela pedir).
 
 5. COMO TRABALHAR COM A USUÁRIA (importante):
    - Ela quer ENTENDER antes de avançar: explique de forma simples o que

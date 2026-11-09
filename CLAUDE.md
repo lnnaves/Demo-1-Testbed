@@ -168,6 +168,10 @@ fim-a-fim; entrega/perda; mobilidade.
   .551854 → no do gcs .553587 = 1,73 ms.
 - **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
   `git fetch` em 2026-11-08.
+- 09/11 noite: REAL confirmados `end: sender` estourando (falha "sender
+  timed out") e trajetória CSV + **multi-hop** (relay a 75 m: rota via
+  drone2 a ~124 m, 615/698). Implementado (aprovado): cópia do CSV de
+  trajetória na pasta + sha256 no metadata (falta real). Suíte 219 OK.
 - 09/11 a 16/11: usuária estudando e apresentando o testbed (guia completo,
   relatório da semana 4). Próximo: semana 5. Perguntar o que surgiu.
 - **2026-11-09 (tarde): semana 4 implementada e confirmada no host** (D15):
@@ -177,7 +181,7 @@ fim-a-fim; entrega/perda; mobilidade.
   erros de envio contados), `duration_seconds` conta do início do sender,
   `config.yml` padrão com `end: duration` e 10 s. Real (`poc_mobilidade.yml`,
   20→150 m em 30 s): 407/698, perda começa a 84 m, latência sobe antes.
-  Suíte 217 OK. Falta semana 5: latência por janela × posições.
+  Suíte 217 OK (219 após cópia do CSV). Falta semana 5: latência por janela × posições.
 - **2026-11-09: semana 3 implementada** (D13, D14): `testbed/pcap.py` +
   `testbed/latency.py`, casamento pelo ID do IP, `latency-<orig>-<dest>.csv`
   + bloco `latency` no summary. REAL confirmado: unicast e broadcast (por

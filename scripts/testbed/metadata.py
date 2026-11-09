@@ -93,6 +93,16 @@ def collect_metadata(config: dict[str, Any], argv: list[str] | None = None) -> d
             for role in ("sender", "receiver")
         },
         "images": {image: _safe(lambda image=image: _image(image)) for image in images},
+        # Trajectory CSVs (D15): original path, the copy kept in the run
+        # directory and its sha256 (fingerprint of the exact waypoints used).
+        "trajectories": {
+            name: {
+                "source": config["nodes"][name]["mobility"]["source"],
+                "copy": copy,
+                "sha256": _safe(lambda copy=copy: sha256_file(copy)),
+            }
+            for name, copy in (config.get("output") or {}).get("trajectories", {}).items()
+        },
         "host": {
             "hostname": uname.node,
             "kernel": uname.release,

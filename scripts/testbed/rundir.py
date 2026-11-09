@@ -22,6 +22,9 @@ RUN_FILES = {
 }
 # One PCAP per participant: capture-<node id>.pcap
 PCAP_NAME = "capture-{node}.pcap"
+# Copy of each trajectory CSV used (nodes[].mobility.waypoints_csv), so the
+# run stays reproducible even if the original CSV is edited later (D15).
+TRAJECTORY_NAME = "trajectory-{node}.csv"
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
 
@@ -57,5 +60,12 @@ def prepare_run_directory(
     config_path = config.get("config_path")
     if config_path:
         shutil.copyfile(config_path, output["config"])
+    output["trajectories"] = {}
+    for name, node in (config.get("nodes") or {}).items():
+        source = (node.get("mobility") or {}).get("source")
+        if source and source != "config":
+            copy = run_dir / TRAJECTORY_NAME.format(node=name)
+            shutil.copyfile(source, copy)
+            output["trajectories"][name] = str(copy)
     config["output"] = output
     return output
