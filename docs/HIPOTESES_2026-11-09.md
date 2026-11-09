@@ -53,3 +53,18 @@ se o BATMAN-adv repetir os broadcasts (explicação alternativa da hipótese
   (`tx failed`) por vizinho.
 - Comparar com uma captura na `wlan0`, abaixo do BATMAN, para ver quantas
   vezes cada quadro foi para o ar.
+
+## Atualização (tarde de 09/11): a taxa do Wi-Fi pode explicar as duas
+
+Com o `signal.csv` (D15), que registra a taxa usada pelo Wi-Fi:
+
+| Execução | Taxa para o gcs | Mediana |
+|---|---|---|
+| Mobilidade, 20–70 m | 13 Mbit/s | ~0,23 ms |
+| Config padrão, 20 m | 7,2 Mbit/s | 0,925 ms |
+
+Hipótese: ~0,9 ms quando o quadro sai numa taxa baixa (broadcast sempre na
+taxa básica; unicast quando o Wi-Fi escolhe uma taxa baixa) e ~0,2 ms em
+taxas mais altas. Evidência indireta: o `iw` mostra só a última taxa usada.
+O contador `tx retries` ficou 0 em todas as execuções; não serve para
+confirmar ou descartar reenvios.

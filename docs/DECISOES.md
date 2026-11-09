@@ -962,3 +962,21 @@ de envio, `ended_by: testbed` em 35,07 s. Receiver `ended_by: testbed`.
   latência sobe primeiro, depois a perda cresce até quase 100%.
 - Hipótese (não verificada) para os ~100 ms: fila no Wi-Fi/BATMAN enquanto
   cada quadro espera tentativas de envio num enlace quase morto.
+
+**Confirmação REAL — config padrão novo (09/11,
+`logs/exp-01-unicast/2026-11-09_16-23-21/`).** `end: duration`, 10 s:
+`success`, sender 199 enviados em 10,02 s, `ended_by: testbed`, 199/199
+entregues, total 39,0 s (antes ~28 s). p99 apareceu (n ≥ 100): 3,225 ms.
+- **Observação nova:** mediana 0,925 ms, contra 0,240 ms no unicast a 20 m
+  da manhã (mesmas posições). `signal.csv`: o Wi-Fi usou **7,2 Mbit/s**
+  para o gcs (13,5 para o drone2); na mobilidade, a 20–70 m, usou 13 Mbit/s
+  e a mediana foi ~0,23 ms. Hipótese (não verificada), que pode unir as
+  hipóteses 1 e 2 de `HIPOTESES_2026-11-09.md`: a latência ~0,9 ms aparece
+  quando o quadro sai numa taxa baixa (broadcast sempre na taxa básica;
+  unicast quando o Wi-Fi escolhe uma taxa baixa), ~0,2 ms em taxas mais
+  altas. O "tx bitrate" do `iw` é a última taxa usada, então a evidência é
+  indireta.
+- `routes.csv`: o TQ do BATMAN para o gcs ainda subia durante toda a
+  execução (29 → 133): a espera da malha termina quando o ping passa, não
+  quando o BATMAN converge. Sem efeito visível aqui (enlace direto), mas
+  relevante para multi-hop.
