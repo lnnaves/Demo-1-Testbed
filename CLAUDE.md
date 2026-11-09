@@ -206,8 +206,9 @@ fim-a-fim; entrega/perda; mobilidade.
   PCAP do sender (critério da semana 1): protocolo só TCP ou em outra porta
   sairia `inconclusive`. Rever na semana 6. `validate_scenario.py` não rodado
   no host desde a semana 3.
-- README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
-  comportamento antigo em pontos (processos, BLA, fases novas).
+- README reescrito em 09/11 (estado das semanas 1–4) e `bin/BIN_INTERFACE.md`
+  corrigido em pontos; `docs/CONTEXTO_AGENTE.md` e `RELATORIO_TECNICO.md`
+  ainda descrevem o comportamento antigo. Revisar tudo na semana 6.
 
 ## Plano (marcar ao concluir; cada fase fecha com execução real confirmada)
 

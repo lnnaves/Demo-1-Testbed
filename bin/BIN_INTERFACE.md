@@ -34,7 +34,9 @@ O sender **não recebe `--mode` nem `--count`**. O modo é escolhido em `config.
 - recebem os parâmetros de rede fornecidos pelo runner;
 - a própria implementação abre e gerencia seus sockets;
 - `stdout` é diagnóstico normal e `stderr` é erro;
-- o receiver responde a `SIGTERM`/`SIGINT` para encerramento controlado;
+- o receiver responde a `SIGTERM`/`SIGINT` para encerramento controlado; o
+  sender também, quando o experimento usa `experiment.end: duration` (o
+  testbed o encerra no limite de tempo);
 - os executáveis não configuram containers, interfaces, IPs, BATMAN-adv, rotas, captura ou métricas.
 
 ## Códigos de saída
@@ -42,14 +44,18 @@ O sender **não recebe `--mode` nem `--count`**. O modo é escolhido em `config.
 | Código | Significado |
 |---:|---|
 | `0` | Encerramento local normal do processo — **não** é sucesso semântico do protocolo |
-| diferente de `0` | Falha operacional |
+| diferente de `0` | Falha operacional, se o processo saiu sozinho |
+
+Quando o testbed encerra o processo (receivers no fim; sender no limite com
+`end: duration`), o encerramento é normal com qualquer código, e o
+`summary.json` registra `ended_by: testbed`.
 
 `argparse` (ou equivalente) pode encerrar diretamente com código `2` para argumentos ausentes ou inválidos.
 
 ## Limitação desta versão
 
-A plataforma executa executáveis com interface de **endereço/porta** e observa tráfego **UDP na porta configurada** na captura. O testbed não interpreta o conteúdo enviado nem as mensagens impressas pelos processos.
+A plataforma executa executáveis com interface de **endereço/porta** (na semana 6 do plano, o contrato passa a ser um comando livre com marcadores). A captura grava todo o tráfego da `bat0`; a latência e a perda são calculadas para qualquer pacote IPv4 entre os participantes. O critério do status (`success`/`inconclusive`) ainda olha só UDP na porta configurada. O testbed não interpreta o conteúdo enviado nem as mensagens impressas pelos processos.
 
 ## Fronteira de responsabilidade
 
-O testbed monta `bin/` em `/opt/protocol/bin:ro`, inicia os processos (receivers antes do sender), escolhe os endereços a partir de `config.yml`, coleta stdout/stderr/exit code/duração e gera PCAP, CSV e JSON.
+O testbed monta `bin/` em `/opt/protocol/bin:ro`, inicia os processos (receivers antes do sender), escolhe os endereços a partir de `config.yml`, coleta stdout/stderr/exit code/duração/`ended_by` e gera PCAP, CSV e JSON.

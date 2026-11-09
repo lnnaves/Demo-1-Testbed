@@ -1,106 +1,134 @@
 # Demo-1-Testbed
 
-Plataforma de execução de protocolos em um cenário emulado de drones, usando
-Containernet, Mininet-WiFi, rede ad hoc BATMAN-adv, captura PCAP e relatórios
-CSV/JSON.
+Testbed para executar protocolos de comunicação entre drones num cenário
+emulado: containers Docker como drones, rádio Wi-Fi emulado (Containernet +
+Mininet-WiFi + wmediumd), roteamento em malha BATMAN-adv, captura PCAP em
+cada participante e relatórios de latência, entrega/perda, rotas e sinal.
 
-O produto é a **plataforma (testbed)**, não os executáveis de exemplo. O
-desenvolvedor substitui `bin/sender` e `bin/receiver` pela sua implementação,
-configura o cenário em `scripts/config.yml`, executa o experimento e recebe
-PCAP, CSV e JSON. A plataforma não implementa, interpreta nem valida nenhum
-protocolo.
+O produto é a **plataforma**, não os executáveis de exemplo. Quem testa um
+protocolo (ex.: EDHOC, PQ-EDHOC, TESLA) troca `bin/sender` e `bin/receiver`
+pelos seus programas, descreve o cenário em `scripts/config.yml` e recebe os
+resultados numa pasta por execução. O testbed não implementa, não interpreta
+e não altera nenhum protocolo: nunca lê o conteúdo dos pacotes nem a saída
+dos programas para decidir algo.
 
-## Fluxo de execução
+**Estado (09/11/2026):** semanas 1 a 4 do plano concluídas e confirmadas em
+execução real (unicast, broadcast, latência e perda de rede, mobilidade,
+multi-hop). Explicação completa, com resultados e limitações:
+[`docs/TESTBED_GUIA_COMPLETO.md`](docs/TESTBED_GUIA_COMPLETO.md).
+
+## Fluxo de uma execução
 
 ```text
-scripts/config.yml
-        ↓
-scripts/run.py
-        ├── valida a configuração
-        ├── cria os containers que representam GCS e drones
-        ├── configura a rede ad hoc BATMAN-adv
-        ├── atribui IPs
-        ├── executa somente Unicast OU Broadcast
-        ├── inicia receivers e sender fornecidos pelo desenvolvedor
-        ├── captura tráfego com tcpdump
-        ├── gera PCAP, CSV e JSON
-        └── limpa processos, containers e Mininet
+sudo python3 scripts/run.py [config.yml]
+  ├── valida o config (campo desconhecido = erro)
+  ├── cria logs/<experimento>/<data-hora>/ e grava metadados (versões)
+  ├── limpa restos de execuções anteriores
+  ├── sobe os containers, o rádio emulado e o BATMAN-adv; atribui IPs
+  ├── espera a malha: ping do sender a cada receiver; limpa o ARP
+  ├── inicia um tcpdump por participante (bat0)
+  ├── inicia os receivers, depois o sender
+  │     ├── move os nós com trajetória (a cada 0,1 s)
+  │     └── registra rotas do BATMAN e sinal do Wi-Fi (a cada 1 s)
+  ├── encerra o sender (fim por conta própria ou por duração), espera o drain,
+  │   encerra os receivers e as capturas
+  ├── casa os pacotes entre os PCAPs: latência e perda por sentido
+  ├── grava summary.json e CSVs
+  └── desmonta a rede (timing.json com o tempo de cada fase)
 ```
 
-## Arquitetura: uma configuração, um modo por execução
+## Configuração
 
-Há uma única configuração persistente, `scripts/config.yml`. O usuário escolhe
-exatamente um modo por execução em `protocol.mode`:
-
-- apenas o modo configurado é executado por invocação, nunca os dois em sequência;
-- não existe outro YAML de cenário nem outro script de execução;
-- em `unicast`, o runner exige exatamente um receiver configurado, inicia apenas
-  esse receiver e usa o IP dele como destino do sender;
-- em `broadcast`, o runner inicia todos os receivers configurados e usa
-  `wireless.broadcast_ip` como destino;
-- o Containernet/Mininet-WiFi monta a mesma infraestrutura ad hoc BATMAN-adv nos
-  dois modos.
+Há um único config versionado, `scripts/config.yml`; outros podem ser
+passados na linha de comando. Cada execução roda **um** modo, escolhido em
+`protocol.mode`:
 
 ```yaml
+experiment:
+  id: exp-01-unicast
+  end: duration          # sender: termina quando o sender sai sozinho
+                         # duration: o testbed encerra o sender no limite
+  duration_seconds: 10   # conta a partir do início do sender
+  drain_seconds: 1.0     # espera após o sender, antes de parar receivers
+
 protocol:
-  mode: unicast      # ou: broadcast
+  mode: unicast          # ou: broadcast
   port: 5000
   sender: drone1
   receivers:
-    - gcs            # broadcast aceita vários receivers
+    - gcs                # broadcast aceita vários receivers
+
+nodes:
+  - id: drone1
+    ip: 192.168.123.2/24
+    position: [20, 0, 0] # metros; onde fica durante a espera da malha
+    mobility:            # opcional
+      type: trajectory
+      waypoints:         # [segundo, x, y, z]; ou waypoints_csv: arquivo.csv
+        - [0, 20, 0, 0]
+        - [30, 150, 0, 0]
 ```
 
-## Validação do config
-
-O config é validado por completo antes de qualquer execução. Campos
-desconhecidos são erro, inclusive erros de digitação: com `postion:` no lugar
-de `position:`, a execução para com
-`configuration error: nodes[0]: unknown field 'postion'`, em vez de rodar com
-o valor padrão sem avisar.
+- Em `unicast`, o sender recebe o IP do único receiver; em `broadcast`,
+  `wireless.broadcast_ip`, e todos os receivers são iniciados.
+- `end: sender` serve para protocolos que terminam sozinhos (ex.: um
+  handshake); `duration_seconds` vira um limite de segurança, e estourá-lo é
+  falha (`sender timed out`). `end: duration` serve para tráfego contínuo
+  (ex.: telemetria); ser encerrado no limite é o fim normal.
+- A trajetória começa quando o sender começa; entre os pontos o nó anda em
+  linha reta e, depois do último, fica parado. O primeiro ponto deve ser
+  `t = 0` e igual a `position`.
+- Campos desconhecidos são erro antes de rodar: com `postion:`, a execução
+  para com `configuration error: nodes[0]: unknown field 'postion'`.
+- A captura grava todo o tráfego da `bat0`; `capture.filter` aceita um filtro
+  do tcpdump opcional.
 
 ## Alcance do rádio e posições
 
-Não existe um alcance fixo por nó. O sinal entre dois nós é calculado pelo
-emulador a partir de `txpower`, do modelo de propagação
-(`wireless.propagation_model`/`propagation_exponent`) e da distância; abaixo de
-`wireless.noise_threshold_dbm` os nós não se ouvem. Com os valores padrão, o
-enlace direto vai até cerca de 60 m e a qualidade cai bem antes disso.
+Não existe um alcance fixo por nó. O emulador calcula o sinal entre cada par
+de nós a partir de `txpower`, do modelo de propagação e da distância, com uma
+variação aleatória (*fading*); abaixo de `wireless.noise_threshold_dbm` o
+quadro não chega.
 
-O testbed não garante conectividade: posicione os nós (`nodes[].position`) nas
-distâncias que deseja avaliar para observar a partir de que ponto o seu
-protocolo deixa de funcionar bem. Se nenhum caminho existir, a execução falha
-na espera da malha com `network not ready`.
+O testbed **não garante conectividade**: ele mostra o que acontece. Com os
+valores padrão e um drone se afastando, a entrega foi de 100% até ~84 m, a
+latência começou a subir antes (~70 m) e a perda cresceu até quase 100% perto
+de 150 m, sem corte abrupto. Com um relay no meio do caminho, o BATMAN passou
+a rotear por ele. Se nenhum caminho existir no início, a execução falha na
+espera da malha com `network not ready`.
 
 ## Integração do protocolo
 
-Os arquivos `bin/sender` e `bin/receiver` são **modelos mínimos substituíveis**.
-O desenvolvedor insere seu protocolo, bibliotecas, certificados, chaves e
-dependências na imagem/estrutura apropriada e mantém apenas o contrato
-operacional mínimo descrito em [`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md):
+Contrato atual (será trocado por um comando com marcadores na semana 6),
+detalhado em [`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md):
 
 ```bash
 sender --destination <IP_DESTINO> --port <PORTA>
 receiver --address <IP_LOCAL> --port <PORTA>
 ```
 
-O runner fornece destino/endereço/porta; a implementação abre os próprios
-sockets e executa sua lógica. O sender não recebe `--mode`: o runner escolhe o
-destino conforme `protocol.mode`. O testbed não interpreta payload nem logs e
-não valida o sucesso semântico do protocolo.
-
-Nesta versão, a plataforma executa executáveis com interface de endereço/porta e
-observa tráfego **UDP na porta configurada**.
+- Os programas rodam sem interação, em primeiro plano, e abrem os próprios
+  sockets.
+- O receiver (e o sender, se usar `end: duration`) deve encerrar ao receber
+  SIGTERM. Ser encerrado pelo testbed é normal e fica registrado como
+  `ended_by: testbed`.
+- Bibliotecas, chaves e certificados vão numa imagem própria
+  `FROM drone:latest` (campo `nodes[].image`). A imagem precisa ter `ping`,
+  usado na espera da malha (`drone:latest` já tem).
+- Os exemplos `bin/sender` e `bin/receiver` não são um protocolo: o sender
+  envia 1 byte por UDP a cada 50 ms até receber SIGTERM; o receiver só
+  escuta.
 
 ## Pré-requisitos
 
 - Linux com privilégios root;
 - Docker funcional;
-- Containernet/Mininet-WiFi importáveis no Python usado pelo projeto;
-- `wmediumd` disponível;
-- BATMAN-adv disponível no host para o lifecycle nativo do Mininet-WiFi;
-- comandos `mn` e `tcpdump` disponíveis;
-- imagem `drone:latest` construída de `dockerfiles/Dockerfile.drone`;
-- `bin/sender` e `bin/receiver` executáveis conforme `bin/BIN_INTERFACE.md`.
+- Containernet/Mininet-WiFi importáveis no Python usado pelo projeto, com
+  `wmediumd` e o comando `mn`;
+- módulo BATMAN-adv no kernel do host;
+- `tcpdump` no host;
+- Python 3 com PyYAML;
+- imagem `drone:latest` construída de `dockerfiles/Dockerfile.drone`.
 
 ## Build da imagem
 
@@ -108,48 +136,31 @@ observa tráfego **UDP na porta configurada**.
 scripts/build-docker.sh
 ```
 
-O script equivale a:
+Equivale a `docker build -t drone:latest -f dockerfiles/Dockerfile.drone .`.
+A imagem é neutra (shell, Python, ferramentas de rede, `batctl`, `tcpdump`);
+dependências de protocolo são responsabilidade de quem integra.
+
+## Execução
 
 ```bash
-docker build -t drone:latest -f dockerfiles/Dockerfile.drone .
+sudo python3 scripts/run.py                         # usa scripts/config.yml
+sudo python3 scripts/run.py outro-config.yml        # outro cenário
+sudo python3 scripts/run.py --output-dir /outro/lugar
 ```
 
-A imagem é neutra: contém apenas shell, Python, ferramentas de rede,
-BATMAN-adv e `tcpdump`. Dependências de protocolo são responsabilidade de quem
-integra a implementação.
+Saída típica:
 
-## Execução e validação
-
-Ajuste `scripts/config.yml` (nós, IPs, WiFi, `protocol.mode` e porta) e
-execute o modo configurado:
-
-```bash
-sudo python3 scripts/run.py
-# opcionalmente, informando o caminho explícito da mesma configuração:
-sudo python3 scripts/run.py scripts/config.yml
+```text
+Run directory: .../logs/exp-08-mobilidade/2026-11-09_16-14-38
+Mesh ready after 9.0s
+Mobility: moved drone1 (365 position updates)
+Routes/signal samples: 39
+drone1->gcs: 407/698 delivered, median latency 0.445 ms
+Experiment completed successfully.
+Total time: 62.6s
 ```
 
-Para alternar entre Unicast e Broadcast, edite `protocol.mode` e execute
-novamente.
-
-Há um verificador opcional, **exclusivamente infraestrutural**, do modo já
-selecionado:
-
-```bash
-sudo python3 scripts/validate_scenario.py
-```
-
-Ele exige root, checa os pré-requisitos, carrega a configuração e executa
-`scripts/run.py` uma única vez. Nunca edita o YAML, nunca alterna de modo e
-nunca gera YAML temporário. Confere somente que a plataforma montou o cenário,
-executou o sender e os receivers configurados com os argumentos corretos,
-coletou resultados de processo, iniciou uma captura válida, gerou PCAP/CSV/JSON
-legíveis e não deixou containers residuais. Retorna `0` quando a plataforma
-executou o cenário e produziu os artefatos, `1` em falha operacional e `3`
-quando o cenário **NÃO FOI EXECUTADO** por pré-requisito ausente.
-
-`PASSOU` significa somente que a plataforma montou, executou, coletou e limpou
-corretamente; não significa que qualquer protocolo foi validado semanticamente.
+Os arquivos gerados pertencem ao `root`; apagá-los exige `sudo`.
 
 ## Saídas
 
@@ -157,67 +168,112 @@ Cada execução grava numa pasta própria, que nunca é sobrescrita:
 
 ```text
 logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
-    config.yml      cópia exata da configuração usada
-    capture-<nó>.pcap  um PCAP por participante (sender e cada receiver)
-    metrics.csv     métricas passivas observáveis da captura
-    summary.json    resumo de processos, captura, métricas, falhas, warnings e caminhos
-    timing.json     início, fim e duração do experimento e de cada fase
-    metadata.json   versões: commit do testbed, hash dos binários, imagem, kernel, BATMAN
+    config.yml                      cópia exata do config usado
+    metadata.json                   commit do testbed, sha256 dos binários e das trajetórias CSV,
+                                    imagem, kernel, versão do BATMAN
+    timing.json                     início, fim e duração de cada fase e do total
+    capture-<nó>.pcap               todo o tráfego da bat0 de cada participante
+    latency-<origem>-<destino>.csv  um pacote por linha: ID do IP, envio, chegada, latência, entregue/perdido
+    positions.csv                   posição de cada nó a cada 0,1 s
+    routes.csv                      tabela do BATMAN de cada nó a cada 1 s (próximo salto, TQ)
+    signal.csv                      sinal, taxa e falhas do Wi-Fi por vizinho a cada 1 s
+    trajectory-<nó>.csv             cópia do CSV de trajetória (quando usado)
+    summary.json                    status, processos (exit code, stdout, stderr, ended_by),
+                                    captura, latência/perda, mobilidade, avisos
+    metrics.csv                     intervalos entre pacotes no sender (métrica antiga)
 ```
 
-Por padrão a captura grava todo o tráfego da interface do protocolo (`bat0`).
-Um filtro do tcpdump pode ser definido em `capture.filter` (ex.:
-`"udp port 5000"`); vazio captura tudo. As métricas do `metrics.csv` vêm do
-PCAP do sender e consideram só UDP na porta do protocolo.
+## Latência e perda
 
-O `timing.json` é gravado por último, também quando a execução falha no meio.
-Os instantes estão em segundos Unix (`started_at`), a mesma base dos
-timestamps do PCAP, e também em hora local legível (`started_at_local`).
-
-O caminho da pasta é impresso no início (`Run directory: ...`). A pasta base
-`logs/` pode ser trocada na hora de rodar, sem editar o config:
-
-```bash
-sudo python3 scripts/run.py --output-dir /outro/lugar
-```
-
-Os resultados não são versionados.
-
-Campos das métricas: `packet_count`, `first_timestamp_seconds`,
-`last_timestamp_seconds`, `observed_duration_seconds`, `interval_mean_seconds`,
-`interval_median_seconds` e `interval_max_seconds`.
+- **Latência de rede fim-a-fim**: da `bat0` do nó que envia à `bat0` do nó
+  que recebe, por todos os saltos. Não inclui o tempo de processamento dentro
+  dos programas ([por quê](docs/LATENCIA_REDE_X_PROGRAMA.md)).
+- O mesmo pacote é reconhecido nas duas capturas pelo **ID do cabeçalho IP**
+  (posto pelo kernel) junto com IPs, protocolo, portas e tamanho, com janela
+  de 5 s. O conteúdo nunca é lido. Vale para qualquer pacote IPv4 (UDP, TCP,
+  ICMP), nos dois sentidos, separado por fluxo.
+- Métricas por sentido e por fluxo: enviados, entregues, perdidos, taxa de
+  perda, maior rajada de perda, fora de ordem, duplicados, latência
+  mín/mediana/média/p95 (n ≥ 20)/p99 (n ≥ 100)/máx e jitter.
+- Em broadcast, o resultado sai por receiver.
+- Os containers usam o relógio do host, então os horários dos PCAPs são
+  comparáveis.
 
 ## Status e limitações
 
-- `success`: processos válidos, captura válida e tráfego UDP observado no sender;
-- `inconclusive`: processos e captura válidos, mas nenhum tráfego filtrado observado;
-- `failed`: falha de processo ou de captura.
+- `success`: processos e captura válidos e UDP na porta `protocol.port`
+  observado no PCAP do sender;
+- `inconclusive`: processos e captura válidos, mas nenhum UDP na porta
+  `protocol.port` no sender;
+- `failed`: falha de processo (inclusive `sender timed out` com
+  `end: sender`) ou de captura. Se a execução para antes do protocolo (ex.:
+  `network not ready`), não há `summary.json`; o `timing.json` marca a fase
+  que falhou.
 
-Interpretação honesta dos resultados:
+Interpretação honesta:
 
-- o tráfego observado no sender **não comprova entrega** aos receivers;
-- os campos `interval_*` são intervalos entre pacotes capturados e **não são
-  latência nem tempo de comunicação**;
-- exit `0` dos executáveis significa apenas encerramento local controlado;
-- sem privilégios, Docker, módulos de kernel ou dependências do Mininet-WiFi, o
-  cenário é **NÃO EXECUTADO**; não afirme `PASSOU` sem execução real;
-- os próximos testes reais serão feitos diretamente com PQ-EDHOC, executáveis
-  compatíveis com o contrato operacional mínimo.
+- perder pacotes **não** muda o status: é resultado do cenário;
+- os campos `interval_*` do `metrics.csv` **não são latência**;
+- exit `0` dos programas significa só encerramento local controlado;
+- o critério do status ainda olha só UDP em `protocol.port` (um protocolo só
+  TCP ou em outra porta sairia `inconclusive`); IPv6 é capturado, mas não
+  entra na análise de latência;
+- o wmediumd tem aleatoriedade sem semente: mesmo config, mesmo cenário, não
+  os mesmos resultados;
+- confirmado em execução real até agora só com os binários de exemplo (UDP);
+- sem privilégios, Docker, módulos de kernel ou dependências do
+  Mininet-WiFi, o cenário é **NÃO EXECUTADO**.
+
+Lista completa em
+[`docs/TESTBED_GUIA_COMPLETO.md`](docs/TESTBED_GUIA_COMPLETO.md), seção 12.
+
+## Verificador de infraestrutura
+
+```bash
+sudo python3 scripts/validate_scenario.py
+```
+
+Checa os pré-requisitos, executa `scripts/run.py` uma vez e confere que a
+plataforma montou o cenário, executou os programas, gerou PCAP/CSV/JSON
+legíveis e não deixou containers residuais. Retorna `0` (plataforma ok), `1`
+(falha operacional) ou `3` (**NÃO EXECUTADO** por pré-requisito ausente).
+`PASSOU` não valida nenhum protocolo. Ainda não foi revisto para as
+mudanças das semanas 3 e 4 (exige exit code `0` de todos os programas).
 
 ## Desenvolvimento
 
-Módulos do núcleo em `scripts/testbed/`:
+Módulos em `scripts/testbed/`:
 
-- `config.py`: leitura e validação do YAML;
-- `network.py`: criação/limpeza da rede Containernet/Mininet-WiFi;
-- `runner.py`: lifecycle de receivers e sender;
-- `metrics.py`: tcpdump, CSV e summary JSON.
+| Módulo | Papel |
+|---|---|
+| `config.py` | Leitura e validação do YAML |
+| `rundir.py` | Pasta por execução, cópia do config e das trajetórias |
+| `metadata.py` | Versões e impressões digitais |
+| `network.py` | Rede Containernet/Mininet-WiFi, BATMAN, espera da malha, limpeza |
+| `runner.py` | Ciclo de vida de receivers e sender |
+| `metrics.py` | tcpdump, `metrics.csv`, `summary.json` |
+| `pcap.py` | Leitor de PCAP em Python |
+| `latency.py` | Casamento de pacotes, latência e perda |
+| `mobility.py` | Movimento dos nós e `positions.csv` |
+| `observer.py` | `routes.csv` e `signal.csv` |
+| `timing.py` | Tempos das fases |
 
-Testes unitários, que não dependem de rede real:
+Testes automáticos (não usam rede real; servem para detectar regressões, não
+para validar o testbed, o que só a execução real faz):
 
 ```bash
 python3 -m unittest discover -s tests
-python3 -m py_compile scripts/run.py scripts/validate_scenario.py scripts/testbed/*.py tests/*.py bin/sender bin/receiver
 ```
 
 O código vendorizado em `third-party/containernet/` não é modificado.
+
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [`docs/TESTBED_GUIA_COMPLETO.md`](docs/TESTBED_GUIA_COMPLETO.md) | Visão completa: arquitetura, fases, config, saídas, medidas, histórico, resultados, limitações |
+| [`docs/DECISOES.md`](docs/DECISOES.md) | Registro de decisões (contexto, motivo, onde no código, confirmações reais) |
+| [`docs/LATENCIA_REDE_X_PROGRAMA.md`](docs/LATENCIA_REDE_X_PROGRAMA.md) | Por que medimos latência de rede |
+| [`docs/HIPOTESES_2026-11-09.md`](docs/HIPOTESES_2026-11-09.md) | Hipóteses em aberto sobre os resultados |
+| `docs/RELATORIO_*.md` | Relatórios de cada dia de trabalho |
+| [`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md) | Contrato atual dos executáveis |

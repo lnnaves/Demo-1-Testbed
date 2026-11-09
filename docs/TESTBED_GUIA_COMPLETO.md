@@ -761,6 +761,7 @@ exige `sudo`.
 | `scripts/testbed/` | Código: `config.py`, `network.py`, `runner.py`, `metrics.py`, `pcap.py`, `latency.py`, `mobility.py`, `observer.py`, `timing.py`, `metadata.py`, `rundir.py` |
 | `poc_*.yml` (raiz) | Configs das execuções de 09/11 |
 
-Os documentos `README.md`, `RELATORIO_TECNICO.md`, `CONTEXTO_AGENTE.md` e
-`bin/BIN_INTERFACE.md` estão parcialmente desatualizados e serão revistos na
-semana 6. Onde divergirem, este guia e o `DECISOES.md` valem.
+O `README.md` foi atualizado em 09/11 com o estado das semanas 1–4. Os
+documentos `RELATORIO_TECNICO.md` e `CONTEXTO_AGENTE.md` estão parcialmente
+desatualizados e serão revistos na semana 6. Onde divergirem, este guia e o
+`DECISOES.md` valem.
