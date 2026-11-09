@@ -1,6 +1,11 @@
 experiment:
   id: exp-01-unicast
-  duration_seconds: 60
+  # How the run ends: "sender" = when the sender exits on its own (exceeding
+  # duration_seconds is then a failure); "duration" = the testbed stops the
+  # sender after duration_seconds (normal end). The example sender streams
+  # until stopped, so it needs "duration". Counted from the sender start.
+  end: duration
+  duration_seconds: 10
   receiver_startup_seconds: 1.0
   shutdown_timeout_seconds: 5.0
   network_ready_timeout_seconds: 60.0
@@ -48,6 +53,14 @@ nodes:
     container_name: dr1
     ip: 192.168.123.2/24
     position: [20, 0, 0]
+    # Optional movement, t=0 = sender start (D15). Without "mobility" the node
+    # stays at "position". Example (first waypoint = position):
+    # mobility:
+    #   type: trajectory
+    #   waypoints:            # [t seconds, x, y, z], linear in between
+    #     - [0, 20, 0, 0]
+    #     - [30, 150, 0, 0]
+    #   # or: waypoints_csv: path/to/drone1.csv  (lines t,x,y,z)
     image: drone:latest
     memory: 512m
     txpower: 10

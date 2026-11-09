@@ -39,9 +39,13 @@ fim-a-fim; entrega/perda; mobilidade.
 - Espera da malha: ping sender→cada receiver até `network_ready_timeout_seconds`,
   depois `ip neigh flush dev bat0`; timeout = falha clara.
 - `drain_seconds` após o sender terminar, antes de parar receivers/captura.
-- Latência: casar pacotes entre PCAPs (sender × receiver) pelo hash do payload
-  com `tshark` (só UDP; tshark remonta fragmentos). Relógio é compartilhado
-  entre containers, timestamps são comparáveis. Broadcast: por receiver.
+- Latência (D13, 09/11): latência **de rede** fim-a-fim (`bat0` → `bat0`,
+  todos os saltos), não de programa a programa. Casar pacotes entre PCAPs
+  pelo **ID do IP** + IPs + protocolo + portas + tamanho, nos dois sentidos,
+  todo pacote IP entre participantes; janela máxima de 5 s; leitura em
+  Python puro (sem tshark). O ID sobe com saltos aleatórios (volta a zero a
+  cada ~2.800 pacotes): ordem vem do horário. Relógio compartilhado entre
+  containers. Broadcast: por receiver.
 - **O testbed expõe o alcance, não garante conectividade** (decidido em
   2026-11-05). O usuário escolhe as posições para descobrir onde o protocolo
   dele deixa de funcionar bem; o testbed registra o que aconteceu (perda,
@@ -82,7 +86,11 @@ fim-a-fim; entrega/perda; mobilidade.
   via relay e volta. Plano A da semana 4 validado.
 - **`range` não tem efeito** no modo interference: passado ao `addStation` só
   fixa `wintf.range` (static_range); potência só mudaria via `setRange()`.
-  Alcance direto real ~60 m (logDistance 3.5, 10 dBm, -91 dBm). Sinal medido
+  Alcance direto: **não é ~60 m** (correção 09/11): broadcast/unicast com
+  20/20 entregues a 50, 58, 62 e 70 m; em movimento, 100% até ~84 m,
+  perda crescente depois, pacotes isolados ainda a 150 m (sem corte
+  abrupto; latência sobe antes da perda); na PoC o ping só falhou quase sempre
+  de ~72 m em diante (os -90 dBm do log são o último valor recebido). Sinal medido
   (poc_200ms.log): 15 m -53..-74, 30 m -68..-82, 45 m -82..-89, 60 m -90 dBm;
   ping falhou com enlace de ~42–57 m. No cenário padrão (0/20/40) todos são
   vizinhos diretos (aceito: é só exemplo).
@@ -101,6 +109,14 @@ fim-a-fim; entrega/perda; mobilidade.
   `ip neigh flush` limpa só o ARP do kernel, não o cache DAT da espera da malha.
 - `third-party/containernet/.git` aponta para repositório inexistente (inofensivo).
 
+## Testes automáticos (D14)
+
+- Só execução **REAL** no host valida; testes automáticos (sandbox, mocks,
+  sintéticos) só detectam regressão. Todo relato separa REAL × TESTE
+  AUTOMÁTICO.
+- `tests/` será removida ao fim do projeto: o código do testbed nunca pode
+  depender de `tests/`.
+
 ## Ambiente de trabalho
 
 - O shell do Claude (sandbox Flatpak) **não tem** docker, mn, tcpdump. Suíte
@@ -115,7 +131,7 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (2026-11-05)
+## Estado atual (2026-11-09)
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
@@ -148,8 +164,34 @@ fim-a-fim; entrega/perda; mobilidade.
   atual. Sugerido rebuild (`scripts/build-docker.sh`); usuária não decidiu.
 - PCAP por participante + `capture.filter` (D12) confirmados no host. Suíte 187
   OK. **Semana 2 concluída.** Imagem refeita (id d7f035f1…, 2026-11-05 15:35).
-- Próximo: semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
+- (05/11) Próximo era a semana 3 (latência). Primeira medida manual: UDP no PCAP do sender
   .551854 → no do gcs .553587 = 1,73 ms.
+- **Semana 2 mergeada na `main` pelo PR #21** (`98b07ce`), confirmado com
+  `git fetch` em 2026-11-08.
+- 09/11 noite: REAL confirmados `end: sender` estourando (falha "sender
+  timed out") e trajetória CSV + **multi-hop** (relay a 75 m: rota via
+  drone2 a ~124 m, 615/698). Implementado (aprovado): cópia do CSV de
+  trajetória na pasta + sha256 no metadata (falta real). Suíte 219 OK.
+- 09/11 a 16/11: usuária estudando e apresentando o testbed (guia completo,
+  relatório da semana 4). Próximo: semana 5. Perguntar o que surgiu.
+- **2026-11-09 (tarde): semana 4 implementada e confirmada no host** (D15):
+  `experiment.end`, `nodes[].mobility`, `testbed/mobility.py` (setPosition a
+  cada 0,1 s após o início do sender), `testbed/observer.py` (routes.csv e
+  signal.csv a cada 1 s), sender de exemplo contínuo (50 ms até SIGTERM,
+  erros de envio contados), `duration_seconds` conta do início do sender,
+  `config.yml` padrão com `end: duration` e 10 s. Real (`poc_mobilidade.yml`,
+  20→150 m em 30 s): 407/698, perda começa a 84 m, latência sobe antes.
+  Suíte 217 OK (219 após cópia do CSV). Falta semana 5: latência por janela × posições.
+- **2026-11-09: semana 3 implementada** (D13, D14): `testbed/pcap.py` +
+  `testbed/latency.py`, casamento pelo ID do IP, `latency-<orig>-<dest>.csv`
+  + bloco `latency` no summary. REAL confirmado: unicast e broadcast (por
+  receiver), 20 m a 70 m. **Perda NÃO confirmada no real** (nenhuma perda
+  até 70 m; degradação vira atraso): validar na mobilidade. Suíte 202 OK.
+  Configs temporários `poc_*.yml` na raiz (não versionados).
+- 2026-11-08: semana 3 em discussão, nada implementado. Ver D13: proposta de
+  casar pacotes pelo **ID do cabeçalho IP** em vez de hash do payload (mesmo
+  ID 27575 nos dois PCAPs reais); talvez dispensar `tshark` (Python puro).
+  Aguardando ok da usuária.
 
 ## Pendências fora do plano semanal
 
@@ -160,9 +202,12 @@ fim-a-fim; entrega/perda; mobilidade.
 - `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
   decisão de design, encerramento pelo testbed é normal com qualquer código
   (registrar `ended_by`). Ajustar junto com a semana 6.
+- `status` success/inconclusive ainda depende de UDP em `protocol.port` no
+  PCAP do sender (critério da semana 1): protocolo só TCP ou em outra porta
+  sairia `inconclusive`. Rever na semana 6. `validate_scenario.py` não rodado
+  no host desde a semana 3.
 - README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
   comportamento antigo em pontos (processos, BLA, fases novas).
-- Push + PR da semana 2 (branch `semana1-execucao-real`) para a `main`.
 
 ## Plano (marcar ao concluir; cada fase fecha com execução real confirmada)
 
@@ -182,14 +227,17 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] PCAP por participante (sender e receivers) + filtro configurável
 
 ### Semana 3 — latência
-- [ ] Casamento de pacotes por hash (tshark) → latência por pacote (CSV),
-      média/mediana/p95/máx, entrega/perda; broadcast por receiver
-- [ ] Testes com PCAPs sintéticos
+- [x] Casamento de pacotes pelo ID do IP (Python) → latência por pacote (CSV),
+      mín/mediana/média/p95/p99/máx, jitter, entrega/perda, rajada de perda,
+      fora de ordem, duplicados; por sentido e por receiver
+- [x] Testes com PCAPs sintéticos (TESTE AUTOMÁTICO, D14)
+- [x] Perda confirmada em execução real (mobilidade, 09/11: 407/698)
 
 ### Semanas 4–5 — mobilidade
-- [ ] `nodes[].mobility`: `static` | `trajectory` (waypoints/CSV)
-- [ ] Encerrar por duração ou por fim do sender
-- [ ] Log de posições e log de `batctl o` ao longo do tempo (saltos por instante)
+- [x] `nodes[].mobility`: `static` | `trajectory` (waypoints/CSV)
+- [x] Encerrar por duração ou por fim do sender (`experiment.end`; real: duration)
+- [x] Log de posições e log de `batctl o` ao longo do tempo (saltos por instante)
+      + `signal.csv` (`iw station dump`)
 - [ ] Latência por janela de tempo cruzada com posições
 
 ### Semana 6 — contrato e documentação
@@ -205,9 +253,11 @@ CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 
 ## Referências
 
-- `docs/PROMPT_RETOMADA.md`: prompt para iniciar uma sessão nova (o que ler,
+- `docs/PROMPT_RETOMADA.md` (atualizado 09/11): prompt para iniciar uma sessão nova (o que ler,
   onde paramos, como trabalhar). Atualizar ao fim de cada dia.
 - `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
+- **`docs/TESTBED_GUIA_COMPLETO.md`**: visão completa do testbed (09/11),
+  escrita para colegas e orientador; atualizar quando algo grande mudar.
 
 - **`docs/DECISOES.md`: registro de decisões com explicação completa**
   (contexto/quando surgiu, decisão, onde no código, implicações). **Toda decisão

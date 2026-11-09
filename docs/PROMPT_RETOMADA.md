@@ -9,96 +9,108 @@ inteiro, para economizar contexto.
 
 1. CONTEXTO (já carregado automaticamente: CLAUDE.md). Ele é a fonte de
    verdade: objetivo, fronteira testbed × usuário, decisões de design,
-   achados técnicos, ambiente, estado atual e plano com checkboxes.
+   achados técnicos, regras dos testes automáticos (D14), ambiente, estado
+   atual e plano com checkboxes.
 
 2. LEIA AGORA, nesta ordem:
-   a) docs/DECISOES.md — D1 a D12, com o porquê de cada decisão. Atenção às
-      correções dentro da D3 (DAT do BATMAN) e da D8 (precisão ~1,2 s).
-   b) docs/RELATORIO_2026-11-05.md — o que foi feito no último dia.
+   a) docs/TESTBED_GUIA_COMPLETO.md — visão completa do testbed em
+      09/11 (arquitetura, fases, config, saídas, medidas, histórico,
+      resultados, limitações). É o documento que a usuária estudou e
+      apresentou aos colegas e ao orientador; use os mesmos termos.
+   b) docs/RELATORIO_SEMANA4_2026-11-09.md — último dia de trabalho.
+   c) docs/DECISOES.md — leia a D15 (mobilidade) por inteiro; da D13
+      (latência) leia o resumo final ("Situação da semana 3") e as
+      confirmações; das demais basta o título (grep "^## D").
    NÃO leia README.md, RELATORIO_TECNICO.md, CONTEXTO_AGENTE.md,
    BIN_INTERFACE.md, third-party/ nem os testes antigos, a menos que a
-   tarefa exija. CONTEXTO_AGENTE.md e BIN_INTERFACE.md estão desatualizados
-   (contrato antigo); onde conflitarem, CLAUDE.md vence.
+   tarefa exija (estão desatualizados; CLAUDE.md vence).
 
-3. ONDE PARAMOS: semanas 1 e 2 concluídas e confirmadas no host. Suíte com
-   187 testes OK. Semana 1 já está na main (PR #20). Semana 2 está na
-   branch semana1-execucao-real; confira com "git fetch" e
-   "git status" se já foi enviada e se o PR dela já foi mergeado. Não afirme
-   o estado do GitHub sem "git fetch". Próximo: SEMANA 3, latência.
+3. ONDE PARAMOS (09/11/2026):
+   - Semanas 1 e 2 na main (PRs #20 e #21). Semanas 3 e 4 em commits na
+     branch semana1-execucao-real, SEM push e sem PR. Não afirme o estado do
+     GitHub sem "git fetch".
+   - Semana 3 (latência): casamento de pacotes pelo ID do IP, janela 5 s,
+     latency-<origem>-<destino>.csv e bloco "latency" no summary.json.
+   - Semana 4 (mobilidade): nodes[].mobility (trajectory com waypoints ou
+     CSV), experiment.end (sender | duration), testbed/mobility.py
+     (setPosition a cada 0,1 s após o início do sender), testbed/observer.py
+     (routes.csv e signal.csv a cada 1 s), positions.csv, ended_by nos
+     processos, sender de exemplo contínuo (50 ms até SIGTERM).
+   - REAL: drone1 de 20 a 150 m em 30 s -> 407/698 entregues, perda a partir
+     de 84 m, latência sobe antes (~70 m). Config padrão (10 s): 199/199.
+     Mesma trajetória via CSV com relay a 75 m -> multi-hop real (rota via
+     drone2 a ~124 m), 615/698. end: sender estourando -> "sender timed out".
+   - Cópia do CSV de trajetória na pasta + sha256 no metadata: implementada
+     e aprovada, falta confirmação REAL (rode poc_multihop_csv.yml de novo).
+   - Ainda não real: protocolo real/TCP e análise nos dois sentidos.
+   - TESTE AUTOMÁTICO: 219 OK.
+   - Entre 09/11 e 16/11 a usuária só estudou o testbed e apresentou aos
+     colegas e ao orientador. PERGUNTE se surgiram dúvidas, críticas ou
+     pedidos dessa apresentação ANTES de seguir: eles podem mudar o plano.
 
-4. PARA A SEMANA 3, leia só estes arquivos de código:
-   - scripts/testbed/metrics.py (Capture, CaptureSet, analyze_pcap,
-     write_outputs; o summary["capture"]["nodes"] tem um PCAP por
-     participante)
-   - scripts/testbed/rundir.py (output["pcaps"] = {nó: caminho})
-   - scripts/run.py (fases; onde a análise nova entraria)
-   - tests/test_repository_contract.py (proíbe "latency_" em metrics.py ->
-     a latência vai num módulo novo, ex.: scripts/testbed/latency.py)
-
-   Escopo da semana 3 (do plano):
-   - casar o mesmo pacote no PCAP do sender e no de cada receiver pelo hash
-     do payload, com tshark (pré-requisito novo no host; remonta fragmentos;
-     só UDP);
-   - saídas: latência por pacote (CSV), média, mediana, p95, máximo, taxa de
-     entrega e perda; em broadcast, por receiver;
-   - testes com PCAPs sintéticos, que não exigem rede real.
-
-   Fatos que importam:
-   - timestamps do PCAP e do testbed estão na mesma base (epoch);
-   - relógio compartilhado entre containers;
-   - primeira medida manual: 1,73 ms (D12);
-   - payload duplicado (mesmo conteúdo enviado 2 vezes) precisa de regra de
-     casamento;
-   - drain_seconds precisa ser maior que a latência máxima, senão a "perda" é
-     artefato do testbed;
-   - o testbed nunca interpreta o payload: hash é só para casar pacotes;
-   - "interval_*" não é latência; não renomear.
-
-   Decisões a levar à usuária ANTES de codar (explique de forma simples):
-   - os testes rodam no sandbox, que não tem tshark: gerar PCAPs sintéticos
-     em Python puro e (a) testar o casamento sobre dados já extraídos e (b)
-     pular os testes que chamam tshark quando ele não existir?
-   - nome e formato dos arquivos novos na pasta da execução
-     (ex.: latency-<receiver>.csv e um bloco "latency" no summary.json);
-   - o que fazer com pacotes não-UDP ou de outras portas.
+4. PRÓXIMO: SEMANA 5 — latência e perda por janela de tempo × posições.
+   A tabela "por distância" da seção 4.1 do relatório da semana 4 foi feita
+   à mão; a semana 5 é o testbed gerá-la sozinho. Antes de codar, leve à
+   usuária, de forma simples:
+   - janela por tempo (ex.: 1 s) e/ou por faixa de distância (ex.: 10 m)?
+     Distância de quem a quem (par sender/receiver; nós móveis)?
+   - que métricas por janela (entregues/perdidos, mediana, máx, jitter?) e
+     cruzar também com sinal (signal.csv) e rota/TQ (routes.csv)?
+   - formato da saída (ex.: windows-<origem>-<destino>.csv) e resumo no
+     terminal;
+   - o que fazer com janelas sem pacotes.
+   Para isso, leia só: scripts/testbed/latency.py, scripts/testbed/mobility.py,
+   scripts/testbed/observer.py e scripts/run.py. Dados reais para conferir:
+   logs/exp-08-mobilidade/2026-11-09_16-14-38/.
+   Pendências que podem entrar: escolher batman_orig_interval_ms padrão para
+   mobilidade; status success/inconclusive ainda depende de UDP na porta do
+   config; IPv6 fora da análise; PR das semanas 3 e 4 (só se ela pedir).
 
 5. COMO TRABALHAR COM A USUÁRIA (importante):
    - Ela quer ENTENDER antes de avançar: explique de forma simples o que
      temos hoje, o que vai mudar, por quê, e de onde surgiu a necessidade.
      Use tabelas curtas e exemplos concretos. Não avance sem o "ok" dela em
-     decisões de design.
-   - Toda decisão ou explicação nova vira entrada em docs/DECISOES.md (D13,
-     D14...) ANTES de seguir: contexto/quando surgiu, decisão, por quê, onde
+     decisões de design. Responda exatamente o que ela perguntou.
+   - Toda decisão ou explicação nova vira entrada em docs/DECISOES.md (D16,
+     D17...) ANTES de seguir: contexto/quando surgiu, decisão, por quê, onde
      no código, implicações e, depois, a confirmação real.
-   - Seja honesto: se algo prometido não se confirmar, registre como
-     "Correção" na decisão correspondente.
+   - Em todo relato, separe REAL (rodado por ela no host) de TESTE
+     AUTOMÁTICO (sandbox, mocks, sintéticos). Só o real valida (D14).
+   - Seja honesto: hipótese é hipótese; se algo não se confirmar, registre
+     como "Correção" na decisão correspondente.
    - Ciclo: implementar + testes -> UM comando para o host + o que se espera
-     ver -> ela roda e cola a saída -> você confere os arquivos gerados ->
-     marca o checkbox no CLAUDE.md -> commit.
+     ver (inclusive os resultados possíveis) -> ela roda e cola a saída ->
+     você confere os arquivos gerados (e de forma independente) -> marca o
+     checkbox no CLAUDE.md -> commit.
    - Commits só na branch atual, mensagem em português, com a linha
      Co-Authored-By. Não fazer merge/push sem pedido.
+   - Documento para mostrar a alguém (orientador, colegas): .md em docs/.
+     Ao fim do dia: relatório em docs/ e atualização deste prompt.
 
 6. AMBIENTE (o shell do assistente é um sandbox Flatpak):
    - não tem docker, mn, tcpdump nem tshark; a execução real é sempre no
-     host, pela usuária, com: sudo python3 scripts/run.py 2>&1 | tee <log>
+     host, pela usuária: sudo python3 scripts/run.py [config] 2>&1 | tee <log>
+   - para cenários de teste, crie configs temporários poc_*.yml na raiz
+     (só scripts/config.yml é versionado). Os poc_*.yml de 09/11 são da
+     usuária (apresentação): não apague. Os da manhã de 09/11 não têm
+     "end" e, com o sender contínuo, terminariam em "sender timed out".
    - os testes rodam aqui com pyyaml no scratchpad:
        pip install --target <scratchpad>/pylib pyyaml
        PYTHONPATH=<scratchpad>/pylib python3 -m unittest discover -s tests
-   - os resultados ficam legíveis aqui em logs/<exp>/<data-hora>/. Os PCAPs
-     podem ser decodificados com Python (struct), já que não há tcpdump.
+   - resultados legíveis aqui em logs/<exp>/<data-hora>/; PCAPs podem ser
+     lidos com scripts/testbed/pcap.py.
    - arquivos do root aparecem como "nfsnobody" aqui; é só o sandbox.
    - ao dar comandos para o host, não dependa da saída de "ls" (o terminal
-     dela tem ls com cores, eza); use caminhos explícitos ou "command ls".
+     dela tem eza); use caminhos explícitos ou "command ls".
 
-Confirme em poucas linhas que entendeu onde paramos e o que é a semana 3, e
-então me apresente, de forma simples, as decisões do item 4 antes de
-implementar.
+Confirme em poucas linhas que entendeu onde paramos, pergunte o que surgiu
+na apresentação e, então, apresente de forma simples as decisões do item 4
+antes de implementar.
 ```
 
 ## Variações
 
-- Para começar pelo PR da semana 2:
-  troque a última frase por "Antes da semana 3, confira se a semana 2 já
-  está na main e, se não estiver, me explique como abrir o PR".
-- Para só tirar dúvidas: troque a última frase por "Ainda não implemente
-  nada; quero tirar dúvidas".
+- Para abrir o PR das semanas 3 e 4 antes de seguir: troque a última frase
+  por "Antes da semana 5, me explique como abrir o PR das semanas 3 e 4".
+- Para só tirar dúvidas sobre o guia: troque a última frase por "Ainda não
+  implemente nada; quero tirar dúvidas sobre o TESTBED_GUIA_COMPLETO.md".

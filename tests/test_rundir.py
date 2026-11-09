@@ -41,6 +41,22 @@ class RunDirectoryTests(unittest.TestCase):
         self.assertEqual(output["summary"], str(run_dir / "summary.json"))
         self.assertIs(config["output"], output)
 
+    def test_copies_trajectory_csvs_but_not_inline_waypoints(self):
+        csv_file = self.base / "path.csv"
+        csv_file.write_text("t,x,y,z\n0,1,0,0\n10,50,0,0\n", encoding="utf-8")
+        config = self.config()
+        config["nodes"] = {
+            "drone1": {"mobility": {"type": "trajectory", "source": str(csv_file)}},
+            "drone2": {"mobility": {"type": "trajectory", "source": "config"}},
+            "gcs": {"mobility": {"type": "static"}},
+        }
+        output = prepare_run_directory(config, self.base / "logs", now=NOW)
+
+        self.assertEqual(list(output["trajectories"]), ["drone1"])
+        copy = Path(output["trajectories"]["drone1"])
+        self.assertEqual(copy.name, "trajectory-drone1.csv")
+        self.assertEqual(copy.read_bytes(), csv_file.read_bytes())
+
     def test_copies_the_exact_config_file_used(self):
         output = prepare_run_directory(self.config(), self.base, now=NOW)
 

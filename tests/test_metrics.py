@@ -211,3 +211,21 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(observed["status"], "success")
         self.assertNotIn("delivery", str(observed).lower())
         self.assertEqual(failed_process["status"], "failed")
+
+    def test_network_analysis_is_stored_and_never_changes_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = {"experiment": {"id": "exp"}, "protocol": {"mode": "unicast"},
+                      "output": {"summary": str(Path(tmp) / "summary.json"), "csv": str(Path(tmp) / "metrics.csv")}}
+            process = {"status": "success", "sender": {}, "receivers": [], "failures": []}
+            capture = {"started": True, "valid": True, "metrics": {"packet_count": 1}}
+            lossy = {"valid": True, "directions": {"a->b": {"total": {"lost": 20}}}, "warnings": ["near drain"]}
+            broken = {"valid": False, "error": "could not read PCAP: x", "warnings": []}
+
+            with_loss = write_outputs(config, process, capture, lossy)
+            with_error = write_outputs(config, process, capture, broken)
+
+        self.assertEqual(with_loss["status"], "success")
+        self.assertEqual(with_loss["latency"], lossy)
+        self.assertIn("near drain", with_loss["warnings"])
+        self.assertEqual(with_error["status"], "success")
+        self.assertIn("network analysis failed: could not read PCAP: x", with_error["warnings"])

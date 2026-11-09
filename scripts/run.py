@@ -4,13 +4,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import traceback
 from pathlib import Path
 
 from testbed.config import ConfigError, load_config
+from testbed.latency import analyze_run
 from testbed.metadata import collect_metadata, write_metadata
 from testbed.metrics import start_capture, write_outputs
-from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, wait_for_network
+from testbed.mobility import MobilityController
+from testbed.network import build_network, cleanup_mininet, cleanup_stale_environment, station_macs, wait_for_network
+from testbed.observer import NetworkObserver
 from testbed.rundir import DEFAULT_OUTPUT_DIR, prepare_run_directory
 from testbed.runner import execute_protocol
 from testbed.timing import Timeline
@@ -38,11 +42,38 @@ def _write_timing(path: str, timeline: Timeline) -> None:
         timing_file.write("\n")
 
 
+class ScenarioMonitor:
+    """Moves nodes (mobility) and samples routes/signal while the protocol runs (D15)."""
+
+    def __init__(self, config: dict, nodes: dict):
+        output = config["output"]
+        locks = {name: threading.Lock() for name in config["nodes"]}
+        self.mobility = MobilityController(config, nodes, output["positions"], locks)
+        self.observer = NetworkObserver(
+            config, nodes, station_macs(config), output["routes"], output["signal"], locks, self.mobility.t
+        )
+        self._result: dict | None = None
+
+    def start(self) -> "ScenarioMonitor":
+        self.mobility.start()
+        self.observer.start()
+        return self
+
+    def sender_started(self, wall: float) -> None:
+        self.mobility.sender_started(wall)
+
+    def stop(self) -> dict:
+        if self._result is None:
+            self._result = {"mobility": self.mobility.stop(), "observer": self.observer.stop()}
+        return self._result
+
+
 def main() -> int:
     args = parse_args()
 
     network = None
     capture = None
+    monitor = None
     config = None
     output = None
     timeline = Timeline()
@@ -76,14 +107,37 @@ def main() -> int:
         capture = start_capture(config, network.nodes)
 
         phase = timeline.start("execute_protocol")
-        protocol_result = execute_protocol(config, network.nodes)
+        monitor = ScenarioMonitor(config, network.nodes).start()
+        protocol_result = execute_protocol(config, network.nodes, monitor.sender_started)
+        scenario_result = monitor.stop()
+        monitor = None
 
         phase = timeline.start("stop_capture")
         capture_result = capture.stop(config["experiment"]["shutdown_timeout_seconds"])
         capture = None
 
+        phase = timeline.start("analyze_network")
+        network_analysis = analyze_run(config) if capture_result.get("valid") else None
+
         phase = timeline.start("write_outputs")
-        summary = write_outputs(config, protocol_result, capture_result)
+        summary = write_outputs(config, protocol_result, capture_result, network_analysis, scenario_result)
+
+        mobility = scenario_result.get("mobility") or {}
+        observer = scenario_result.get("observer") or {}
+        if mobility.get("moving_nodes"):
+            print(
+                f"Mobility: moved {', '.join(mobility['moving_nodes'])} ({mobility.get('ticks', 0)} position updates)",
+                file=sys.stderr,
+            )
+        print(f"Routes/signal samples: {observer.get('samples', 0)}", file=sys.stderr)
+        for direction, result in ((summary.get("latency") or {}).get("directions") or {}).items():
+            total = result["total"]
+            median_ms = total["latency_median_ms"]
+            print(
+                f"{direction}: {total['delivered']}/{total['sent']} delivered, "
+                f"median latency {'-' if median_ms is None else f'{median_ms:.3f} ms'}",
+                file=sys.stderr,
+            )
 
         if summary["status"] == "success":
             print("Experiment completed successfully.", flush=True)
@@ -112,6 +166,12 @@ def main() -> int:
 
     finally:
         timeline.start("cleanup")
+        if monitor is not None:
+            try:
+                monitor.stop()
+            except Exception as cleanup_error:
+                print(f"warning: could not stop mobility/observer: {cleanup_error}", file=sys.stderr)
+
         if capture is not None:
             try:
                 # A capture only exists when load_config() already succeeded, so
