@@ -1500,3 +1500,59 @@ usuária (`FROM drone:latest`; id 95304c2e… no `metadata.json`).
 5000`), sender e receiver `ended_by: testbed`, código 0. Pastas
 `out-drone1/` e `out-gcs/` criadas e vazias (os binários de exemplo não
 gravam nada).
+
+---
+
+## D19. Mobilidade aleatória: Random Waypoint gerado como trajetória (23/11/2026; caminho aprovado, detalhes aguardando ok)
+
+**Contexto: quando surgiu.** D17 deixou modelos aleatórios como tarefa
+extra. Em 23/11, ao comparar dois caminhos (A: usar os geradores do
+Mininet-WiFi na thread do testbed, ~1–2 dias, com conflito de posição
+inicial, só 2D e testes só com simulação; B: o testbed sorteia com `seed`
+uma sequência de pontos e velocidades e a transforma numa trajetória
+`[t, x, y, z]` comum, ~meio dia), a usuária decidiu: **manter a trajetória
+definida e acrescentar o B**. Não é "um ou outro": cada nó escolhe o seu
+tipo de mobilidade.
+
+**Por que B.** Reaproveita tudo o que já foi confirmado no real (thread de
+movimento, `positions.csv`, tabelas por janela e distância); o nó parte da
+`position` configurada, então a espera da malha continua valendo; a mesma
+`seed` gera o mesmo caminho (os resultados ainda variam pelo *fading* do
+wmediumd); funciona em 3D; testável aqui sem `mn_wifi`.
+
+**Proposta de config (aguardando ok).**
+```yaml
+mobility:
+  type: random_waypoint
+  area: [[0, 0, 10], [150, 150, 10]]   # canto mínimo e máximo [x, y, z]
+  speed: [2, 6]                        # m/s, sorteada por trecho
+  pause: [0, 2]                        # s parado em cada ponto, sorteado
+  seed: 20
+  duration: 60                         # s de trajetória gerada (depois, parado)
+```
+- Começa na `position` do nó (que deve estar dentro da área).
+- A trajetória gerada é gravada em `trajectory-<nó>.csv` na pasta da
+  execução, e seed e parâmetros no `metadata.json`.
+
+**Explicação: binário compilado na máquina do usuário basta? (23/11, D18).**
+Pergunta da usuária. Nem sempre: por padrão o Linux compila de forma
+dinâmica, e o binário procura as bibliotecas (`liboqs.so`, `libssl.so`,
+`libc.so.6`...) no sistema **onde roda**. O container tem o seu próprio
+sistema de arquivos (Ubuntu 24.04 da `drone:latest`) e não enxerga as
+bibliotecas do host. Falhas típicas: biblioteca ausente (`error while
+loading shared libraries`) e glibc mais nova no host que no container
+(``GLIBC_2.xx not found``), esta mesmo sem biblioteca extra. Soluções:
+compilar estático; compilar dentro de um container `FROM drone:latest`; ou
+imagem própria com as bibliotecas. **Decidido:** manter a imagem própria
+como caminho recomendado (já é o do guia). Para conferir um binário:
+`file` e `ldd` dentro da `drone:latest`.
+
+**Formato aprovado (23/11).** A usuária deu ok ao formato acima, depois de
+perguntar se precisava de verificação formal (resposta: não para um modelo
+curto e bem definido; testes da definição, teste estatístico, execução
+real e documentação). Acrescentado: velocidade mínima > 0 obrigatória
+(Yoon, Liu e Noble, 2003). Comparação completa com a versão do
+Mininet-WiFi (que vem da pymobility e começa no estado estacionário),
+melhorias, desvantagens e referências: em `docs/MOBILIDADE_RANDOM_WAYPOINT.md`,
+documento de estudo da usuária, **local e não versionado** (a pedido dela).
+No fim do projeto, um resumo dessa diferença entra no README.

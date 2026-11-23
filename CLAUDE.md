@@ -140,8 +140,7 @@ fim-a-fim; entrega/perda; mobilidade.
   ignorado pelo Git): tabelas OK, **análise nos dois sentidos confirmada**
   (ICMP, conferência independente bate), cópia do CSV de trajetória
   confirmada. Achado: rota gcs→drone1 oscilou enquanto drone1→gcs não.
-  Suíte 227 (1 falha alheia: `scripts/teste.yml` da usuária acusado por
-  `test_repository_contract`). D17: mobilidade nativa do Mininet-WiFi ×
+  Suíte 227 (teste.yml removido em 23/11: 243/243 OK). D17: mobilidade nativa do Mininet-WiFi ×
   thread do testbed; modelos aleatórios = tarefa extra, usuária decide
   com o grupo. Broadcast + mobilidade também real (exp-12): 697/697 nos
   dois receivers; o gcs passou a receber via relay (mediana 0,93 → 1,83 ms).
@@ -163,8 +162,10 @@ fim-a-fim; entrega/perda; mobilidade.
   **Sempre rodar `git fetch` antes de afirmar o estado do GitHub** (a cópia
   local de `origin/*` fica desatualizada).
 - 11/11: há arquivos da usuária no índice do Git (`git add` feito por ela):
-  `docs/Plano_execucao`, `poc_*.yml`, `poc_trajetoria_drone1.csv`,
-  `scripts/teste.yml`. Ao commitar, passar só os caminhos do trabalho.
+  `docs/Plano_execucao`, `poc_*.yml`, `poc_trajetoria_drone1.csv`.
+  Ao commitar, passar só os caminhos do trabalho. (`scripts/teste.yml`,
+  formato antigo e inválido, foi removido a pedido dela em 23/11: suíte
+  243/243 OK.)
 - Confirmado no host: unicast e broadcast em `success`; receivers encerram com
   "Receiver finished"; "Mesh ready after 10.1s".
 - `scripts/config.yml` versionado: unicast, drone1→gcs, posições 0/20/40,
@@ -223,9 +224,11 @@ fim-a-fim; entrega/perda; mobilidade.
 ## Pendências fora do plano semanal
 
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
-- Modelos de mobilidade aleatórios (D17): tarefa extra; a usuária vai
-  discutir com o grupo e trazer a decisão. Caminho proposto: usar os
-  geradores do `mn_wifi/mobility.py` dentro de `testbed/mobility.py`.
+- Mobilidade aleatória (D17 → D19): decidido manter a trajetória definida
+  e acrescentar Random Waypoint próprio, gerado como trajetória com seed
+  (caminho B). Formato aprovado em 23/11. `docs/MOBILIDADE_RANDOM_WAYPOINT.md`
+  é estudo da usuária: **não commitar** (excluído em `.git/info/exclude`).
+  No fim do projeto: acrescentar ao README a diferença RWP nativo × testbed.
 - Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de
   `ping` (usado pela espera da malha; `FROM drone:latest` já tem).
 - Em aberto (D8): encurtar `ping -W` para medir a espera da malha em décimos.
