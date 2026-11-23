@@ -1,4 +1,4 @@
-# Relatório de 23/11/2026 — semanas 5 e 6
+# Relatório de 23/11/2026 — semanas 5 e 6, Random Waypoint e repetições
 
 **Resultado:** as semanas 5 e 6 foram implementadas e confirmadas em
 execução real no mesmo dia.
@@ -8,10 +8,18 @@ execução real no mesmo dia.
 - **Semana 6:** o usuário escreve no config o comando do seu programa, com
   marcadores, e o programa pode vir de uma imagem própria.
 
+Depois, no mesmo dia:
+- **Random Waypoint (D19):** mobilidade aleatória própria, sorteada com
+  seed e gerada como trajetória.
+- **Repetições com estatística (D20):** `run.py --repeat N`, com média,
+  desvio e IC 95%. Era o item "se der tempo" da semana 6.
+
+Com isso, **todo o plano de 6 semanas está concluído**.
+
 Duas pendências antigas também foram confirmadas: a análise nos dois
 sentidos (desde a semana 3) e a cópia do CSV de trajetória (desde 09/11).
 
-Decisões completas: [`DECISOES.md`](DECISOES.md), D16, D17 e D18.
+Decisões completas: [`DECISOES.md`](DECISOES.md), D16 a D20.
 Guia novo: [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md).
 
 ---
@@ -23,6 +31,8 @@ Guia novo: [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md).
 | D16 | Latência e perda por janela de tempo × posições (semana 5) | Aprovada, implementada, confirmada |
 | D17 | Por que o testbed move os nós em vez de usar a mobilidade do Mininet-WiFi | Explicação registrada; modelos aleatórios ficam como tarefa extra, a decidir com o grupo |
 | D18 | Contrato novo: comando com marcadores, pastas de dados e saída, status por tráfego IP (semana 6) | Aprovada, implementada, confirmada |
+| D19 | Random Waypoint próprio, gerado como trajetória (mantendo a trajetória definida) | Aprovada, implementada, confirmada |
+| D20 | Repetições com estatística (`--repeat N`) | Aprovada, implementada, confirmada (com uma correção) |
 
 ### D17 em poucas linhas
 
@@ -36,8 +46,8 @@ Pergunta: por que não usar `net.setMobilityModel(...)` do Mininet-WiFi?
 Para o usuário, o esforço é o mesmo: alguns campos no YAML. Trajetória
 definida e modelo aleatório respondem a perguntas diferentes.
 
-Caminho possível: usar os geradores de modelo do Mininet-WiFi dentro da
-thread do testbed (estimativa de 1–2 dias). Fica para a reunião do grupo.
+Depois da explicação, a usuária decidiu manter a trajetória definida e
+acrescentar um Random Waypoint próprio (D19, seção 4).
 
 ## 2. Semana 5 (D16)
 
@@ -129,32 +139,98 @@ custo de acesso ao meio depois de 0,1 s de canal ocioso.
 - `docs/CONTEXTO_AGENTE.md` recebeu um aviso de documento histórico, com a
   lista das regras revogadas.
 
-## 4. Testes automáticos
+**Explicação registrada (D18): binário compilado no host basta?** Nem
+sempre. Por padrão o binário é dinâmico e procura as bibliotecas onde
+roda; o container (Ubuntu 24.04) não enxerga as do host, e um binário
+compilado num Linux mais novo pode pedir uma glibc que o container não tem.
+Decidido: imagem própria continua sendo o caminho recomendado.
 
-TESTE AUTOMÁTICO: 243 testes (eram 219). Novos: `tests/test_windows.py`
-(8) e `tests/test_contract.py` (10), mais testes de status, do validador e
-de contrato.
+## 4. Random Waypoint (D19)
 
-Uma falha **anterior e alheia** ao trabalho do dia: o
-`test_repository_contract` acusa `scripts/teste.yml`, um arquivo da usuária
-que está no índice do Git. Falta decidir o que fazer com ele.
+**Escolha:** caminho B. O testbed sorteia, com `seed`, destinos uniformes
+numa área 3D, velocidades (m/s, mínimo > 0) e pausas, e transforma isso
+numa trajetória comum que começa na `position` em t = 0. O caminho A (usar
+os geradores do Mininet-WiFi) foi descartado porque sorteia a posição
+inicial (conflita com a espera da malha), é 2D, avança em passos de 0,5 s e
+só seria testável no host.
 
-## 5. Commits (branch `semana1-execucao-real`, sem push)
+```yaml
+mobility:
+  type: random_waypoint
+  area: [[0, 0, 10], [120, 120, 30]]
+  speed: [3, 8]
+  pause: [0, 2]
+  seed: 20          # opcional; sem ela, uma é sorteada e registrada
+  duration: 60
+```
+
+O caminho sorteado vai para `trajectory-<nó>.csv` (reusável como
+trajetória definida), e a seed e os parâmetros para o `metadata.json`.
+Validação: testes da definição, teste estatístico (qui-quadrado dos
+destinos, quartis das velocidades) e execução real.
+
+**REAL, exp-15 (`poc_random_waypoint.yml`):** `trajectory-drone1.csv`
+idêntico ao sorteado no sandbox com a seed 20; `positions.csv` segue o
+caminho com desvio máximo de 0,004 m. 868/1194 entregues. Primeira perda a
+84 m (de novo). A rota passou a ser via drone2 a 133 m; perdeu força com o
+drone1 longe também do relay; **na volta**, a entrega se recuperou por
+volta de 37 s pelo relay, e a rota voltou a ser direta a 42 s (~76 m). Foi
+o primeiro teste em que um drone se afasta e volta.
+
+## 5. Repetições com estatística (D20)
+
+`sudo python3 scripts/run.py config.yml --repeat N [--vary-seed]` roda o
+mesmo config N vezes em `logs/<exp>/<data-hora>-campanha/rep-NN/` e grava
+`statistics.json`/`statistics.csv` com média, desvio e IC 95% (t de
+Student). As medidas são: entrega, latência mín/mediana/média/p95/máx,
+jitter, rajada, primeira perda (t e distância) e espera da malha. Uma
+repetição com falha fica fora da estatística, com o motivo registrado.
+
+**Correção:** na primeira tentativa real, a campanha parou depois da rep-01
+com `KeyError: 'summary'`. Uma variável de laço tinha o mesmo nome do
+dicionário devolvido por `run_once`. Corrigido, com teste de regressão.
+
+**REAL, campanha de 5 do config padrão:** 5/5 usadas; mediana 0,239 ±
+0,001 ms (IC 95% 0,238–0,241); p95 0,551 ± 0,183 ms; espera da malha 9,29
+± 1,09 s. Conferido à mão a partir dos `summary.json`.
+
+## 6. Testes automáticos
+
+TESTE AUTOMÁTICO: **267 OK** (eram 219 no início do dia).
+
+| Arquivo novo | Testes | O que cobre |
+|---|---|---|
+| `tests/test_windows.py` | 8 | Janelas e faixas (D16) |
+| `tests/test_contract.py` | 10 | Contrato com marcadores (D18) |
+| `tests/test_random_waypoint.py` | 12 | Random Waypoint, inclusive teste estatístico (D19) |
+| `tests/test_campaign.py` | 11 | Estatística e laço de `--repeat` (D20) |
+
+Também foram acrescentados testes de status, do validador, de contrato e
+de regressão do `run_once`. O `scripts/teste.yml` (formato antigo, que
+fazia o `test_repository_contract` falhar) foi removido a pedido da
+usuária.
+
+## 7. Commits (branch `semana1-execucao-real`, sem push)
 
 `a51484e` (semana 5), `5bc456d` (broadcast), `ab79d36` (unicast), `ef45450`
-(semana 6), `5983aa1` (compatibilidade), `6b143a0` (guia e documentação) e
-o commit deste relatório.
+(semana 6), `5983aa1` (compatibilidade), `6b143a0` (guia e documentação),
+`aea24c6` (relatório e prompt), `0b77364` (guia completo), `6caeb40` (D19,
+remoção do teste.yml), `62ba935` (Random Waypoint), `2671635` e `1076aac`
+(repetições), e o commit de fechamento do dia.
 
 Configs temporários fora do Git: `poc_semana5_ping.yml`,
-`poc_semana5_broadcast.yml` e `poc_semana5_unicast.yml`, e o
-`bin/poc_ping_sender`, que o Git ignora.
+`poc_semana5_broadcast.yml`, `poc_semana5_unicast.yml` e
+`poc_random_waypoint.yml`, e o `bin/poc_ping_sender`, que o Git ignora.
+Documentos de estudo da usuária também ficam fora do Git.
 
-## 6. Pendências
+## 8. Pendências
 
-- Atualizar o `TESTBED_GUIA_COMPLETO.md` (estado de 09/11).
-- Repetições com média, desvio e IC 95% (o item "se der tempo" da semana 6).
-- Modelos de mobilidade aleatórios (D17): decisão do grupo.
-- `scripts/teste.yml`: decisão da usuária.
-- Ainda não exercitados no real: TCP e um protocolo real (PQ-EDHOC).
+- **PQ-EDHOC:** integrar pelos binários da usuária (próximo passo).
+- **Push e PR** das semanas 5 e 6, do Random Waypoint e das repetições
+  (a usuária faz ao encerrar o dia).
+- No fim do projeto: resumo no README da diferença entre o Random Waypoint
+  nativo e o do testbed.
+- Ainda não exercitados no real: TCP e protocolo real.
 - Escolher o `batman_orig_interval_ms` padrão para mobilidade.
-- Push e PR das semanas 5 e 6 (só se a usuária pedir).
+- Observação em aberto: pergunta × resposta no exemplo echo.
+- O `validate_scenario.py` foi ajustado, mas não foi rodado no host.

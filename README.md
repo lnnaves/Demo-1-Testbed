@@ -17,7 +17,8 @@ dos programas para decidir algo.
 **Estado (23/11/2026):** semanas 1 a 6 do plano implementadas e confirmadas
 em execução real (unicast, broadcast, latência e perda de rede nos dois
 sentidos, mobilidade, multi-hop, tabelas por janela de tempo e por
-distância, contrato com comando livre e marcadores). Explicação completa, com resultados e limitações:
+distância, contrato com comando livre e marcadores, mobilidade aleatória
+Random Waypoint e repetições com média, desvio e IC 95%). Explicação completa, com resultados e limitações:
 [`docs/TESTBED_GUIA_COMPLETO.md`](docs/TESTBED_GUIA_COMPLETO.md).
 
 ## Fluxo de uma execução

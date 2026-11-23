@@ -73,9 +73,27 @@ Mantenha o `FROM drone:latest`: a imagem base tem o `ping` (usado para
 saber quando a rede está pronta) e o `/bin/sh` (usado para iniciar o seu
 programa na pasta de saída).
 
-Alternativa sem imagem própria: um executável que não precisa de nada além
-da imagem base pode ficar em `bin/` do repositório; ele aparece no container
-em `/opt/protocol/bin/`.
+**Por que imagem própria, mesmo com o programa já compilado.** Por padrão,
+um binário Linux é *dinâmico*: ele não leva as bibliotecas dentro de si e
+as procura no sistema onde roda. O container (Ubuntu 24.04 da
+`drone:latest`) não enxerga as bibliotecas da sua máquina. Dois erros
+típicos:
+- `error while loading shared libraries: libxyz.so`: a biblioteca não está
+  na imagem;
+- ``version `GLIBC_2.xx' not found``: o programa foi compilado num Linux
+  mais novo que o do container.
+
+Para conferir um binário, rode `file` e `ldd` dentro da imagem base
+(qualquer `not found` é uma biblioteca que falta):
+
+```bash
+docker run --rm -v "$(realpath pasta-dos-binarios)":/b:ro drone:latest \
+  sh -c 'for f in /b/*; do echo "== $f"; ldd "$f"; done'
+```
+
+Alternativa sem imagem própria: um executável estático, ou que só precisa
+do que a imagem base já tem, pode ficar em `bin/` do repositório; ele
+aparece no container em `/opt/protocol/bin/`.
 
 ### Passo 2: dados por nó (opcional)
 
@@ -261,7 +279,9 @@ Resultado real (23/11): `success`, 50/50 nos dois sentidos,
 - Um único sender por execução.
 - Os processos rodam fora do limite de memória do container.
 - O rádio emulado tem aleatoriedade sem semente: o mesmo config não dá
-  exatamente os mesmos números. Para comparar, repita a execução.
+  exatamente os mesmos números. Para comparar, repita com
+  `sudo python3 scripts/run.py meu-config.yml --repeat 10`: a pasta da
+  campanha recebe média, desvio e IC 95% de cada medida.
 
 Mais detalhes: [`TESTBED_GUIA_COMPLETO.md`](TESTBED_GUIA_COMPLETO.md) e
 [`DECISOES.md`](DECISOES.md) (D13: latência; D15: mobilidade; D16:

@@ -68,3 +68,22 @@ taxa básica; unicast quando o Wi-Fi escolhe uma taxa baixa) e ~0,2 ms em
 taxas mais altas. Evidência indireta: o `iw` mostra só a última taxa usada.
 O contador `tx retries` ficou 0 em todas as execuções; não serve para
 confirmar ou descartar reenvios.
+
+---
+
+## Atualização de 23/11/2026
+
+- **Taxa do Wi-Fi (hipótese 1):** o 0,925 ms do config padrão (09/11) não
+  se repetiu em nenhuma das 5 repetições de 23/11 (mediana 0,239 ±
+  0,001 ms) nem na execução de compatibilidade (0,206 ms). Continua sem
+  confirmação direta.
+- **Observação nova, sem explicação:** no exemplo echo (pergunta e
+  resposta), a pergunta levou ~1,66 ms e a resposta ~0,17 ms, com a taxa
+  do Wi-Fi em 13 Mbit/s nos dois sentidos; a hipótese da taxa não explica
+  este caso. Hipótese não verificada: custo de acesso ao meio emulado
+  depois de 0,1 s de canal ocioso (D18).
+- **~84 m:** a primeira perda com o drone se afastando apareceu a ~84 m em
+  três execuções diferentes (exp-08, exp-13, exp-15), com caminhos
+  diferentes. Indício (não comprovado) de que é onde o enlace direto
+  começa a falhar com esta configuração de rádio; confirmar com repetições.
+

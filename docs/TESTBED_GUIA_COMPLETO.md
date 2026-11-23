@@ -1,7 +1,8 @@
 # Testbed de protocolos para drones: guia completo
 
-Estado em 23/11/2026, depois das semanas 1 a 6 do plano de execução
-(primeira versão: 09/11, semanas 1 a 4).
+Estado em 23/11/2026 (fim do dia): semanas 1 a 6 do plano concluídas,
+mais Random Waypoint (D19) e repetições com estatística (D20). Primeira
+versão: 09/11, semanas 1 a 4.
 
 Este documento explica o testbed para quem conhece só a ideia geral: um
 ambiente que roda os programas (binários) de um protocolo em drones
@@ -310,6 +311,12 @@ nomes sempre iguais, para comparar execuções e processar por script.
 | `windows-<origem>-<destino>.csv` | Uma linha por janela de tempo: distância, entregues/perdidos, latência, próximo salto, TQ, sinal | Semana 5 (D16) |
 | `distance-<origem>-<destino>.csv` | Uma linha por faixa de distância, com os próximos saltos usados | Semana 5 (D16) |
 | `out-<nó>/` | Tudo o que o programa do nó gravou em `/opt/protocol/out` | Semana 6 (D18) |
+
+Com `--repeat N` (D20), cada repetição é uma pasta completa como acima, em
+`logs/<experimento>/<data-hora>-campanha/rep-NN/`, e a pasta da campanha
+ganha `statistics.json` (campanha, repetições, valores e estatística) e
+`statistics.csv` (uma linha por medida: n, média, desvio, IC 95%, mín,
+máx).
 
 Exemplo de `latency-drone1-gcs.csv`:
 
@@ -651,6 +658,12 @@ broadcast reais em `success`.
 - Repetições com média, desvio e IC 95% (`--repeat N`, D20), confirmadas no
   real com 5 repetições do config padrão.
 
+### Extras de 23/11: Random Waypoint e repetições
+
+- Random Waypoint próprio (D19), confirmado no real (seção 11.8).
+- `--repeat N` com média, desvio e IC 95% (D20), confirmado no real
+  (seção 11.9).
+
 ---
 
 ## 11. Resultados reais obtidos
@@ -756,7 +769,37 @@ self`, código 0). Observação em aberto: a pergunta levou ~1,66 ms e a
 resposta ~0,17 ms, com a mesma taxa do Wi-Fi nos dois sentidos (sem
 explicação confirmada).
 
-### 11.8 Hipóteses em aberto
+### 11.8 Random Waypoint (23/11, exp-15)
+
+drone1 com `random_waypoint` (área 120 × 120 m, altitude 10–30 m,
+velocidade 3–8 m/s, pausa 0–2 s, seed 20, 60 s); gcs no solo; drone2
+parado a 60 m. O caminho gravado foi **idêntico** ao sorteado antes, fora
+do host, com a mesma seed; o drone o seguiu com desvio máximo de 0,004 m.
+868/1194 entregues; primeira perda a 84 m (de novo a mesma distância).
+
+| Fase | Entregues | Mediana |
+|---|---|---|
+| 0–9 s, perto, rota direta | 178/179 | 0,26 ms |
+| 9–15 s, afastando (84 → 130 m) | 67/119 | 52,8 ms |
+| 15–18 s, rota via drone2 | 51/60 | 3,9 ms |
+| 27–36 s, longe de todos | 43/179 | 107 ms |
+| 36–42 s, voltando, via drone2 | 107/120 | 3,2 ms |
+| 42–52 s, perto, direta de novo | 196/199 | 2,4 ms |
+
+Primeiro teste com um drone que se afasta e **volta**: o BATMAN refez a
+rota sozinho (via relay a ~37 s, direta a 42 s). A entrega voltou antes do
+que a distância ao gcs sugeria, porque o relay voltou a alcançar o drone1
+primeiro.
+
+### 11.9 Repetições do config padrão (23/11, campanha de 5)
+
+`scripts/config.yml --repeat 5`: 5/5 `success`. Mediana **0,239 ±
+0,001 ms** (IC 95% 0,238–0,241), p95 0,551 ± 0,183 ms, máxima 3,39 ±
+0,16 ms, jitter 0,147 ± 0,027 ms, entrega 100%, espera da malha 9,29 ±
+1,09 s. Conferido à mão. A latência típica é muito estável; a variação
+aparece nas caudas.
+
+### 11.10 Hipóteses em aberto
 
 Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 - **Taxa do Wi-Fi:** ~0,9 ms quando o quadro sai numa taxa baixa (broadcast
