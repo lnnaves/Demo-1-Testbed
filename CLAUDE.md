@@ -150,7 +150,8 @@ fim-a-fim; entrega/perda; mobilidade.
   Suíte 243. Guia `docs/GUIA_INTEGRACAO.md`, README, BIN_INTERFACE e aviso
   no CONTEXTO_AGENTE feitos. `TESTBED_GUIA_COMPLETO.md` atualizado para
   23/11; relatório `docs/RELATORIO_2026-11-23.md`; prompt de retomada
-  atualizado. Semanas 5 e 6 só na branch, sem push. Compatibilidade confirmada no host: `scripts/config.yml`
+  atualizado. Semanas 5 e 6, Random Waypoint (D19) e repetições (D20) só na
+  branch, sem push (push/PR: a usuária faz no fim do dia). Próximo: PQ-EDHOC. Compatibilidade confirmada no host: `scripts/config.yml`
   sem `commands` → mesmos comandos, success, 199/199.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
@@ -284,7 +285,8 @@ fim-a-fim; entrega/perda; mobilidade.
       `docs/GUIA_INTEGRACAO.md`)
 - [x] Atualizar README, BIN_INTERFACE.md, CONTEXTO_AGENTE.md (aviso de
       histórico), testes de contrato
-- [ ] (se der tempo) repetições com média, desvio e IC 95%
+- [x] (se der tempo) repetições com média, desvio e IC 95% (D20; `--repeat N`,
+      real 23/11: 5/5, conferido à mão)
 
 ### Fora de escopo
 Script de instalação, Makefile, CI, campanhas, gráficos automáticos, eventos do
