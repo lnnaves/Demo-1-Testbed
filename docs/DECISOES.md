@@ -1491,3 +1491,12 @@ usuária (`FROM drone:latest`; id 95304c2e… no `metadata.json`).
   de 0,1 s de canal ocioso e a resposta sai logo após um quadro recebido;
   algo no acesso ao meio emulado pode custar mais após ociosidade. Precisa
   de teste próprio se for importante.
+
+**Confirmação REAL — compatibilidade (23/11,
+`logs/exp-01-unicast/2026-11-23_14-57-18/`, `scripts/config.yml` sem
+`commands`).** `success`, 199/199, mediana 0,206 ms, malha 10,3 s, total
+39,1 s. Comandos iguais aos de antes (`/opt/protocol/bin/sender
+--destination 192.168.123.1 --port 5000`; receiver `--address ... --port
+5000`), sender e receiver `ended_by: testbed`, código 0. Pastas
+`out-drone1/` e `out-gcs/` criadas e vazias (os binários de exemplo não
+gravam nada).

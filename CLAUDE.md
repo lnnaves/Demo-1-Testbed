@@ -149,8 +149,8 @@ fim-a-fim; entrega/perda; mobilidade.
   (imagem `drone-echo:latest`, comandos com marcadores, `out-<nó>/`,
   `TESTBED_*`, status por tráfego IP, `validate_scenario` ajustado).
   Suíte 243. Falta: guia "integre seu protocolo", README, BIN_INTERFACE,
-  CONTEXTO_AGENTE; confirmar no host que `scripts/config.yml` (sem
-  `commands`) segue igual.
+  CONTEXTO_AGENTE. Compatibilidade confirmada no host: `scripts/config.yml`
+  sem `commands` → mesmos comandos, success, 199/199.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
