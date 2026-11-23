@@ -1,55 +1,45 @@
-# Contrato operacional dos executáveis
+# Binários de exemplo: `bin/sender` e `bin/receiver`
 
-O produto deste repositório é a **plataforma de execução de protocolos** no cenário emulado de drones. `bin/sender` e `bin/receiver` são apenas **modelos mínimos substituíveis**: existem para demonstrar como integrar um executável próprio e para permitir um smoke test da infraestrutura.
+O produto deste repositório é a **plataforma de execução de protocolos** no
+cenário emulado de drones. `bin/sender` e `bin/receiver` **não são um
+protocolo**: servem para testar a infraestrutura e são os comandos usados
+quando o config não tem o bloco `commands`.
 
-O testbed **não define** payload, algoritmo, handshake, formato de log ou critério de sucesso do protocolo. O desenvolvedor substitui os dois executáveis pela sua implementação (por exemplo, futuramente PQ-EDHOC) e adiciona bibliotecas, certificados, chaves e dependências na imagem do container.
+**Para integrar o seu protocolo, leia
+[`docs/GUIA_INTEGRACAO.md`](../docs/GUIA_INTEGRACAO.md).** Desde a semana 6
+(decisão D18), o usuário escreve o comando do seu programa no config, com
+marcadores (`{address}`, `{destination}`, `{port}`, `{node_id}`, `{mode}`,
+`{data_dir}`, `{output_dir}`), em qualquer formato de argumentos. Não é mais
+preciso trocar estes arquivos nem imitar a interface deles.
 
-```text
-bin/sender
-bin/receiver
-```
-
-O cenário, os nós, os IPs, a porta, o modo, o sender e os receivers são definidos somente em `scripts/config.yml`. O runner lê essa configuração e entrega os valores de rede por argumentos; os executáveis não leem o YAML e não têm valores de rede fixos.
-
-## Interface mínima de CLI
-
-### Receiver
-
-```bash
-receiver --address <IP_LOCAL> --port <PORTA>
-```
-
-### Sender
+## Comandos padrão (sem `commands` no config)
 
 ```bash
-sender --destination <IP_DESTINO> --port <PORTA>
+/opt/protocol/bin/receiver --address {address} --port {port}
+/opt/protocol/bin/sender   --destination {destination} --port {port}
 ```
 
-O sender **não recebe `--mode` nem `--count`**. O modo é escolhido em `config.yml` e o runner o converte no destino correto: o IP do receiver em Unicast ou o endereço de broadcast da sub-rede em Broadcast.
+O testbed monta `bin/` do repositório em `/opt/protocol/bin` (só leitura).
+`{destination}` é o IP do receiver em unicast e o endereço de broadcast em
+broadcast.
 
-## Requisitos operacionais
+## O que fazem
 
-- os arquivos existem sob `bin/` e são executáveis;
-- executam sem interação humana e permanecem em foreground;
-- recebem os parâmetros de rede fornecidos pelo runner;
-- a própria implementação abre e gerencia seus sockets;
-- `stdout` é diagnóstico normal e `stderr` é erro;
-- o receiver responde a `SIGTERM`/`SIGINT` para encerramento controlado;
-- os executáveis não configuram containers, interfaces, IPs, BATMAN-adv, rotas, captura ou métricas.
+- **sender:** envia 1 byte (`\x00`) por UDP a cada 50 ms até receber
+  SIGTERM/SIGINT, como um fluxo de telemetria. Um envio que falha (ex.: sem
+  rota) é contado e o envio continua. No fim imprime
+  `N sent, M send errors`. Por nunca terminar sozinho, precisa de
+  `experiment.end: duration`.
+- **receiver:** escuta na porta até SIGTERM/SIGINT e imprime
+  `Receiver finished`. Não responde nada.
+
+O payload é sempre o mesmo de propósito: o testbed não pode depender do
+conteúdo para distinguir pacotes (ele usa o ID do cabeçalho IP; D13).
 
 ## Códigos de saída
 
-| Código | Significado |
-|---:|---|
-| `0` | Encerramento local normal do processo — **não** é sucesso semântico do protocolo |
-| diferente de `0` | Falha operacional |
-
-`argparse` (ou equivalente) pode encerrar diretamente com código `2` para argumentos ausentes ou inválidos.
-
-## Limitação desta versão
-
-A plataforma executa executáveis com interface de **endereço/porta** e observa tráfego **UDP na porta configurada** na captura. O testbed não interpreta o conteúdo enviado nem as mensagens impressas pelos processos.
-
-## Fronteira de responsabilidade
-
-O testbed monta `bin/` em `/opt/protocol/bin:ro`, inicia os processos (receivers antes do sender), escolhe os endereços a partir de `config.yml`, coleta stdout/stderr/exit code/duração e gera PCAP, CSV e JSON.
+| Situação | Como o testbed trata |
+|---|---|
+| Encerrado pelo testbed (SIGTERM) | Normal com qualquer código; `ended_by: testbed` |
+| Terminou sozinho com `0` | Normal; `ended_by: self` (não é sucesso semântico do protocolo) |
+| Terminou sozinho com outro código | Falha operacional |

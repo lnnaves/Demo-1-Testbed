@@ -13,58 +13,65 @@ inteiro, para economizar contexto.
    atual e plano com checkboxes.
 
 2. LEIA AGORA, nesta ordem:
-   a) docs/TESTBED_GUIA_COMPLETO.md — visão completa do testbed em
-      09/11 (arquitetura, fases, config, saídas, medidas, histórico,
-      resultados, limitações). É o documento que a usuária estudou e
-      apresentou aos colegas e ao orientador; use os mesmos termos.
-   b) docs/RELATORIO_SEMANA4_2026-11-09.md — último dia de trabalho.
-   c) docs/DECISOES.md — leia a D15 (mobilidade) por inteiro; da D13
-      (latência) leia o resumo final ("Situação da semana 3") e as
-      confirmações; das demais basta o título (grep "^## D").
-   NÃO leia README.md, RELATORIO_TECNICO.md, CONTEXTO_AGENTE.md,
-   BIN_INTERFACE.md, third-party/ nem os testes antigos, a menos que a
-   tarefa exija (estão desatualizados; CLAUDE.md vence).
+   a) docs/RELATORIO_2026-11-23.md — último dia (semanas 5 e 6, Random
+      Waypoint, repetições), com o que foi validado no real.
+   b) docs/GUIA_INTEGRACAO.md — o contrato atual (bloco commands, imagem
+      própria, por que imagem própria): é a base do próximo passo.
+   c) docs/DECISOES.md — leia D18 por inteiro (contrato) e os resumos
+      "Decidido"/"Confirmação REAL" de D16, D17, D19 e D20; das demais
+      basta o título (grep "^## D").
+   d) docs/TESTBED_GUIA_COMPLETO.md só se precisar da visão geral.
+   NÃO leia RELATORIO_TECNICO.md nem CONTEXTO_AGENTE.md (históricos),
+   third-party/ nem os testes antigos, a menos que a tarefa exija.
 
-3. ONDE PARAMOS (09/11/2026):
-   - Semanas 1 e 2 na main (PRs #20 e #21). Semanas 3 e 4 em commits na
-     branch semana1-execucao-real, SEM push e sem PR. Não afirme o estado do
-     GitHub sem "git fetch".
-   - Semana 3 (latência): casamento de pacotes pelo ID do IP, janela 5 s,
-     latency-<origem>-<destino>.csv e bloco "latency" no summary.json.
-   - Semana 4 (mobilidade): nodes[].mobility (trajectory com waypoints ou
-     CSV), experiment.end (sender | duration), testbed/mobility.py
-     (setPosition a cada 0,1 s após o início do sender), testbed/observer.py
-     (routes.csv e signal.csv a cada 1 s), positions.csv, ended_by nos
-     processos, sender de exemplo contínuo (50 ms até SIGTERM).
-   - REAL: drone1 de 20 a 150 m em 30 s -> 407/698 entregues, perda a partir
-     de 84 m, latência sobe antes (~70 m). Config padrão (10 s): 199/199.
-     Mesma trajetória via CSV com relay a 75 m -> multi-hop real (rota via
-     drone2 a ~124 m), 615/698. end: sender estourando -> "sender timed out".
-   - Cópia do CSV de trajetória na pasta + sha256 no metadata: implementada
-     e aprovada, falta confirmação REAL (rode poc_multihop_csv.yml de novo).
-   - Ainda não real: protocolo real/TCP e análise nos dois sentidos.
-   - TESTE AUTOMÁTICO: 219 OK.
-   - Entre 09/11 e 16/11 a usuária só estudou o testbed e apresentou aos
-     colegas e ao orientador. PERGUNTE se surgiram dúvidas, críticas ou
-     pedidos dessa apresentação ANTES de seguir: eles podem mudar o plano.
+3. ONDE PARAMOS (23/11/2026, fim do dia):
+   - O plano de 6 semanas está concluído, inclusive o item "se der tempo".
+     Além dele: Random Waypoint próprio (D19).
+   - Git: main tem até a semana 4 (PR #22). O trabalho de 23/11 (semanas
+     5 e 6, D19, D20) está na branch semana1-execucao-real; a usuária ia
+     fazer push e abrir o PR ao encerrar o dia. CONFIRA com "git fetch" e
+     "git log origin/semana1-execucao-real" antes de afirmar qualquer
+     coisa sobre o GitHub.
+   - Semana 5 (D16): windows-/distance-<origem>-<destino>.csv (bloco
+     "analysis"), linha "first loss" no terminal.
+   - Semana 6 (D18): bloco "commands" com marcadores {address}
+     {destination} {port} {node_id} {mode} {data_dir} {output_dir}, sem
+     shell; TESTBED_*; protocol-data/<nó>/ -> /opt/protocol/data (ro);
+     out-<nó>/ <- /opt/protocol/out (cwd); status success = qualquer IPv4
+     do sender para um receiver. Exemplo examples/echo (imagem
+     drone-echo:latest).
+   - D19: mobility.type random_waypoint (area, speed com mínimo > 0,
+     pause, seed opcional, duration); caminho em trajectory-<nó>.csv.
+   - D20: run.py --repeat N [--vary-seed] -> logs/<exp>/<data-hora>-
+     campanha/rep-NN + statistics.json/csv (média, desvio, IC 95% t de
+     Student).
+   - REAL em 23/11: exp-11 (ping, dois sentidos), exp-12 (broadcast),
+     exp-13 (unicast), exp-14 (echo), exp-01 (compatibilidade), exp-15
+     (Random Waypoint), campanha de 5 do config padrão.
+   - Ainda não real: TCP e protocolo real.
+   - TESTE AUTOMÁTICO: 267 OK.
 
-4. PRÓXIMO: SEMANA 5 — latência e perda por janela de tempo × posições.
-   A tabela "por distância" da seção 4.1 do relatório da semana 4 foi feita
-   à mão; a semana 5 é o testbed gerá-la sozinho. Antes de codar, leve à
-   usuária, de forma simples:
-   - janela por tempo (ex.: 1 s) e/ou por faixa de distância (ex.: 10 m)?
-     Distância de quem a quem (par sender/receiver; nós móveis)?
-   - que métricas por janela (entregues/perdidos, mediana, máx, jitter?) e
-     cruzar também com sinal (signal.csv) e rota/TQ (routes.csv)?
-   - formato da saída (ex.: windows-<origem>-<destino>.csv) e resumo no
-     terminal;
-   - o que fazer com janelas sem pacotes.
-   Para isso, leia só: scripts/testbed/latency.py, scripts/testbed/mobility.py,
-   scripts/testbed/observer.py e scripts/run.py. Dados reais para conferir:
-   logs/exp-08-mobilidade/2026-11-09_16-14-38/.
-   Pendências que podem entrar: escolher batman_orig_interval_ms padrão para
-   mobilidade; status success/inconclusive ainda depende de UDP na porta do
-   config; IPv6 fora da análise; PR das semanas 3 e 4 (só se ela pedir).
+4. PRÓXIMO: PQ-EDHOC (a usuária tem os binários).
+   Antes de qualquer coisa, peça e leve à usuária, de forma simples:
+   - onde estão os binários (sugerir uma pasta do projeto, fora do Git se
+     forem privados);
+   - a saída de, no host:
+       file <pasta>/* && docker run --rm -v "$(realpath <pasta>)":/b:ro \
+         drone:latest sh -c 'for f in /b/*; do echo "== $f"; ldd "$f"; done'
+     (estático ou dinâmico; qualquer "not found" = biblioteca faltando);
+   - o --help de cada binário ou os argumentos que ela usou antes;
+   - transporte (CoAP/UDP? porta?), IPv4 ou IPv6, quais chaves cada lado
+     lê, se o initiator termina sozinho e se o responder roda até SIGTERM.
+   Depois: imagem própria FROM drone:latest (decisão dela: manter a
+   imagem própria), chaves em protocol-data/<nó>/, bloco commands, 1ª
+   execução unicast parada a 20 m (end: sender), conferir out-<nó>/ e os
+   dois sentidos. Um handshake gera poucos pacotes: discutir laço de
+   handshakes ou --repeat para ter estatística.
+   Outras pendências: escolher batman_orig_interval_ms padrão para
+   mobilidade; observação em aberto do echo (pergunta ~1,66 ms x resposta
+   ~0,17 ms); no fim do projeto, resumo no README da diferença Random
+   Waypoint nativo x testbed (base: docs/MOBILIDADE_RANDOM_WAYPOINT.md,
+   documento de estudo dela, NÃO commitar). Prazo: ~18/12/2026.
 
 5. COMO TRABALHAR COM A USUÁRIA (importante):
    - Ela quer ENTENDER antes de avançar: explique de forma simples o que
@@ -86,6 +93,12 @@ inteiro, para economizar contexto.
      Co-Authored-By. Não fazer merge/push sem pedido.
    - Documento para mostrar a alguém (orientador, colegas): .md em docs/.
      Ao fim do dia: relatório em docs/ e atualização deste prompt.
+   - Documento que ela pede "só para estudar" NÃO é commitado: fica em
+     docs/estudo/ ou é posto em .git/info/exclude (já estão lá:
+     docs/estudo/, docs/MOBILIDADE_RANDOM_WAYPOINT.md,
+     docs/ESTUDO_EXPERIMENTO_RANDOM_WAYPOINT.md).
+   - Ao commitar, passe só os caminhos do trabalho: o índice tem arquivos
+     que ela adicionou (docs/Plano_execucao, poc_*.yml, CSV de trajetória).
 
 6. AMBIENTE (o shell do assistente é um sandbox Flatpak):
    - não tem docker, mn, tcpdump nem tshark; a execução real é sempre no
@@ -97,20 +110,27 @@ inteiro, para economizar contexto.
    - os testes rodam aqui com pyyaml no scratchpad:
        pip install --target <scratchpad>/pylib pyyaml
        PYTHONPATH=<scratchpad>/pylib python3 -m unittest discover -s tests
+   - os poc_semana5_*.yml e poc_random_waypoint.yml (23/11) também são
+     registro: não apague;
+     bin/poc_ping_sender (sender que só roda ping) é ignorado pelo Git.
+     Versionados como config: scripts/config.yml e examples/echo/config.yml.
    - resultados legíveis aqui em logs/<exp>/<data-hora>/; PCAPs podem ser
-     lidos com scripts/testbed/pcap.py.
+     lidos com scripts/testbed/pcap.py; tabelas da semana 5 de uma pasta
+     antiga: cd scripts && python3 -m testbed.windows <pasta> --output-dir
+     <scratchpad>.
    - arquivos do root aparecem como "nfsnobody" aqui; é só o sandbox.
    - ao dar comandos para o host, não dependa da saída de "ls" (o terminal
      dela tem eza); use caminhos explícitos ou "command ls".
 
-Confirme em poucas linhas que entendeu onde paramos, pergunte o que surgiu
-na apresentação e, então, apresente de forma simples as decisões do item 4
-antes de implementar.
+Confirme em poucas linhas que entendeu onde paramos, confira o estado do
+GitHub (git fetch), pergunte se há novidades (reunião do grupo,
+orientador) e siga para o PQ-EDHOC pedindo as informações do item 4.
 ```
 
 ## Variações
 
-- Para abrir o PR das semanas 3 e 4 antes de seguir: troque a última frase
-  por "Antes da semana 5, me explique como abrir o PR das semanas 3 e 4".
-- Para só tirar dúvidas sobre o guia: troque a última frase por "Ainda não
-  implemente nada; quero tirar dúvidas sobre o TESTBED_GUIA_COMPLETO.md".
+- Se o push/PR não tiver sido feito: troque a última frase por "Antes de
+  seguir, me explique como fazer push e abrir o PR do trabalho de 23/11".
+- Para integrar um protocolo real: troque a última frase por "Quero
+  integrar o <protocolo>; leia docs/GUIA_INTEGRACAO.md e me ajude a
+  escrever a imagem e o bloco commands".

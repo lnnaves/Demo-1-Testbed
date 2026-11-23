@@ -277,6 +277,26 @@ def write_summary(path: str, summary: dict[str, Any]) -> None:
         summary_file.write("\n")
 
 
+def _sender_traffic_observed(
+    config: dict[str, Any],
+    metrics: dict[str, Any],
+    network_analysis: dict[str, Any] | None,
+) -> bool:
+    """Any IPv4 packet from the sender to a receiver (or broadcast) in the sender's PCAP (D18).
+
+    Any protocol or port counts (UDP, TCP, ICMP...). Only when the network
+    analysis could not read the captures, the old week-1 criterion is used:
+    UDP on protocol.port.
+    """
+    if network_analysis and network_analysis.get("valid"):
+        sender = config["protocol"]["sender"]
+        return any(
+            direction.get("source") == sender and (direction.get("total") or {}).get("sent", 0) > 0
+            for direction in (network_analysis.get("directions") or {}).values()
+        )
+    return bool(metrics.get("packet_count", 0))
+
+
 def write_outputs(
     config: dict[str, Any],
     protocol_result: dict[str, Any],
@@ -289,7 +309,7 @@ def write_outputs(
     process_status = protocol_result.get("status", "failed")
     capture_status = "valid" if capture_result.get("valid") else "failed"
     if capture_status == "valid":
-        traffic_status = "observed" if metrics.get("packet_count", 0) else "not_observed"
+        traffic_status = "observed" if _sender_traffic_observed(config, metrics, network_analysis) else "not_observed"
     else:
         traffic_status = "unknown"
     failures = list(protocol_result.get("failures", []))
@@ -301,7 +321,7 @@ def write_outputs(
         failures.append(capture_result.get("error") or "capture is invalid")
     elif traffic_status == "not_observed":
         status = "inconclusive"
-        warnings.append("processes completed, but no configured UDP traffic was observed on the sender")
+        warnings.append("processes completed, but no IP traffic from the sender to a receiver was observed on the sender")
     else:
         status = "success"
     if network_analysis is not None:

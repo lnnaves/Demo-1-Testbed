@@ -100,6 +100,9 @@ def collect_metadata(config: dict[str, Any], argv: list[str] | None = None) -> d
                 "source": config["nodes"][name]["mobility"]["source"],
                 "copy": copy,
                 "sha256": _safe(lambda copy=copy: sha256_file(copy)),
+                # Random Waypoint (D19): seed and parameters that drew the path.
+                **({"random_waypoint": config["nodes"][name]["mobility"]["parameters"]}
+                   if config["nodes"][name]["mobility"].get("type") == "random_waypoint" else {}),
             }
             for name, copy in (config.get("output") or {}).get("trajectories", {}).items()
         },

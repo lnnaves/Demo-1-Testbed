@@ -1,5 +1,12 @@
 # Relatório Técnico — Demo-1-Testbed
 
+> **Documento histórico (aviso de 23/11/2026).** Descreve o código antes do
+> plano de 6 semanas e está desatualizado. A descrição atual do testbed está
+> em [`TESTBED_GUIA_COMPLETO.md`](TESTBED_GUIA_COMPLETO.md); como integrar um
+> protocolo, em [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md); as decisões, em
+> [`DECISOES.md`](DECISOES.md) (D1–D20).
+
+
 ## 1. O que é
 
 O Demo-1-Testbed é uma **plataforma de execução de protocolos em um cenário

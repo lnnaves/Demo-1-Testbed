@@ -45,6 +45,11 @@ def base_config(mode="unicast", receivers=None):
             "sender": {"container": "/opt/protocol/bin/sender"},
             "receiver": {"container": "/opt/protocol/bin/receiver"},
         },
+        # Defaults that load_config() fills in when commands is absent (D18).
+        "commands": {
+            "sender": "/opt/protocol/bin/sender --destination {destination} --port {port}",
+            "receiver": "/opt/protocol/bin/receiver --address {address} --port {port}",
+        },
     }
 
 

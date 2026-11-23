@@ -4,3 +4,4 @@ __pycache__/
 logs/*
 !logs/.gitkeep
 poc_*.log
+bin/poc_*

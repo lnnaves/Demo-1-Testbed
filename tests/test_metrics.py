@@ -214,11 +214,13 @@ class MetricsTests(unittest.TestCase):
 
     def test_network_analysis_is_stored_and_never_changes_status(self):
         with tempfile.TemporaryDirectory() as tmp:
-            config = {"experiment": {"id": "exp"}, "protocol": {"mode": "unicast"},
+            config = {"experiment": {"id": "exp"}, "protocol": {"mode": "unicast", "sender": "a"},
                       "output": {"summary": str(Path(tmp) / "summary.json"), "csv": str(Path(tmp) / "metrics.csv")}}
             process = {"status": "success", "sender": {}, "receivers": [], "failures": []}
             capture = {"started": True, "valid": True, "metrics": {"packet_count": 1}}
-            lossy = {"valid": True, "directions": {"a->b": {"total": {"lost": 20}}}, "warnings": ["near drain"]}
+            # Everything lost is still traffic observed: loss never changes the status.
+            lossy = {"valid": True, "directions": {"a->b": {"source": "a", "total": {"sent": 20, "lost": 20}}},
+                     "warnings": ["near drain"]}
             broken = {"valid": False, "error": "could not read PCAP: x", "warnings": []}
 
             with_loss = write_outputs(config, process, capture, lossy)
@@ -229,3 +231,33 @@ class MetricsTests(unittest.TestCase):
         self.assertIn("near drain", with_loss["warnings"])
         self.assertEqual(with_error["status"], "success")
         self.assertIn("network analysis failed: could not read PCAP: x", with_error["warnings"])
+
+class TrafficStatusTests(unittest.TestCase):
+    """TESTE AUTOMÁTICO (D14): status pelo tráfego IP do sender (D18), dados sintéticos."""
+
+    def run_status(self, analysis, packet_count=0):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = {"experiment": {"id": "exp"}, "protocol": {"mode": "unicast", "sender": "drone1"},
+                      "output": {"summary": str(Path(tmp) / "summary.json"), "csv": str(Path(tmp) / "metrics.csv")}}
+            process = {"status": "success", "sender": {}, "receivers": [], "failures": []}
+            capture = {"started": True, "valid": True, "metrics": {"packet_count": packet_count}}
+            return write_outputs(config, process, capture, analysis)
+
+    def test_any_ip_traffic_from_the_sender_is_success_even_without_udp_on_the_port(self):
+        icmp = {"valid": True, "warnings": [], "directions": {
+            "drone1->gcs": {"source": "drone1", "total": {"sent": 689}},
+            "gcs->drone1": {"source": "gcs", "total": {"sent": 627}},
+        }}
+        self.assertEqual(self.run_status(icmp, packet_count=0)["status"], "success")
+
+    def test_traffic_only_towards_the_sender_is_inconclusive(self):
+        only_replies = {"valid": True, "warnings": [], "directions": {"gcs->drone1": {"source": "gcs", "total": {"sent": 5}}}}
+        summary = self.run_status(only_replies, packet_count=0)
+        self.assertEqual(summary["status"], "inconclusive")
+        self.assertIn("no IP traffic from the sender", summary["warnings"][0])
+
+    def test_without_a_readable_analysis_the_old_udp_criterion_is_used(self):
+        broken = {"valid": False, "error": "x", "warnings": []}
+        self.assertEqual(self.run_status(broken, packet_count=3)["status"], "success")
+        self.assertEqual(self.run_status(None, packet_count=0)["status"], "inconclusive")
+

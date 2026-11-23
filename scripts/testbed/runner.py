@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .config import CONTAINER_DATA_DIR, CONTAINER_OUTPUT_DIR, expand_command
 from .network import container_popen
 
 
@@ -56,8 +57,46 @@ def select_destination(config: dict[str, Any]) -> str:
     raise ValueError(f"unsupported protocol mode: {protocol['mode']}")
 
 
-def _spawn(node: Any, command: list[str]) -> Any:
-    return container_popen(node, command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def command_values(config: dict[str, Any], node_name: str, destination: str) -> dict[str, Any]:
+    """Values of the command placeholders for one node (D18)."""
+    return {
+        "address": config["nodes"][node_name]["address"],
+        "destination": destination,
+        "port": config["protocol"]["port"],
+        "node_id": node_name,
+        "mode": config["protocol"]["mode"],
+        "data_dir": CONTAINER_DATA_DIR,
+        "output_dir": CONTAINER_OUTPUT_DIR,
+    }
+
+
+def command_env(config: dict[str, Any], node_name: str, role: str) -> dict[str, str]:
+    """Optional environment for the program (D18)."""
+    return {
+        "TESTBED_NODE_ID": node_name,
+        "TESTBED_ROLE": role,
+        "TESTBED_MODE": config["protocol"]["mode"],
+        "TESTBED_DATA_DIR": CONTAINER_DATA_DIR,
+        "TESTBED_OUTPUT_DIR": CONTAINER_OUTPUT_DIR,
+    }
+
+
+def build_command(config: dict[str, Any], node_name: str, role: str, destination: str) -> list[str]:
+    return expand_command(config["commands"][role], command_values(config, node_name, destination))
+
+
+def _spawn(config: dict[str, Any], node: Any, node_name: str, role: str, command: list[str]) -> Any:
+    # The program starts in its output directory when the run has one (D18).
+    has_output = node_name in ((config.get("output") or {}).get("node_outputs") or {})
+    return container_popen(
+        node,
+        command,
+        extra_env=command_env(config, node_name, role),
+        cwd=CONTAINER_OUTPUT_DIR if has_output else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
 
 
 def execute_protocol(
@@ -79,19 +118,13 @@ def execute_protocol(
     start = time.monotonic()
     sender_record: ProcessRecord | None = None
 
+    destination = select_destination(config)
     try:
         for receiver_name in protocol["receivers"]:
             receiver_node = nodes[receiver_name]
-            receiver_cfg = config["nodes"][receiver_name]
-            command = [
-                config["binaries"]["receiver"]["container"],
-                "--address",
-                receiver_cfg["address"],
-                "--port",
-                str(protocol["port"]),
-            ]
+            command = build_command(config, receiver_name, "receiver", destination)
             try:
-                process = _spawn(receiver_node, command)
+                process = _spawn(config, receiver_node, receiver_name, "receiver", command)
             except OSError as exc:
                 # Abort starting further receivers; already-spawned ones are
                 # cleaned up in the `finally` block below.
@@ -108,18 +141,11 @@ def execute_protocol(
                     failures.append(f"receiver {record.node} exited during startup with code {exit_code}")
 
         if not failures:
-            destination = select_destination(config)
             sender_name = protocol["sender"]
             sender_node = nodes[sender_name]
-            command = [
-                config["binaries"]["sender"]["container"],
-                "--destination",
-                destination,
-                "--port",
-                str(protocol["port"]),
-            ]
+            command = build_command(config, sender_name, "sender", destination)
             try:
-                sender_process = _spawn(sender_node, command)
+                sender_process = _spawn(config, sender_node, sender_name, "sender", command)
             except OSError as exc:
                 failures.append(f"failed to start sender {sender_name}: {exc}")
             else:

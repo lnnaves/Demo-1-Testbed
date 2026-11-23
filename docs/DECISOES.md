@@ -1087,3 +1087,610 @@ Não. Resposta registrada:
 - **Cuidados:** IPv6 é capturado mas não entra na análise (bibliotecas CoAP
   às vezes usam IPv6 por padrão; o testbed entrega endereços IPv4); no TCP a
   medida é por pacote IP (reenvio = outro pacote), não por mensagem.
+
+---
+
+## D16. Latência e perda por janela de tempo × posições (11/11/2026; EM DISCUSSÃO, nada implementado)
+
+**Contexto: quando surgiu.** Semana 5 do plano ("latência por janela de
+tempo cruzada com posições"). As tabelas por distância do relatório da
+semana 4 (seção 4.1) e da D15 (exp-08 × exp-09) foram feitas à mão,
+cruzando `latency-*.csv` com `positions.csv` e `routes.csv`. A semana 5 é o
+testbed gerar isso sozinho.
+
+**Estado atual do código.** Cada execução já grava, separados:
+`latency-<origem>-<destino>.csv` (um pacote por linha, com `sent_at`),
+`positions.csv` (todos os nós a cada 0,1 s, com `t` desde o início do
+sender), `routes.csv` e `signal.csv` (a cada 1 s). Nada junta esses
+arquivos.
+
+**Protótipo (11/11; script à parte, fora do testbed, sobre os CSVs REAIS
+da exp-09, `logs/exp-09-multihop-csv/2026-11-09_16-44-40/`).** Janelas de
+1 s pelo instante de envio; distância drone1–gcs no meio da janela; rota e
+sinal da leitura mais próxima:
+
+| t (s) | Distância | Entregues | Mediana | Máx | Rota | TQ |
+|---|---|---|---|---|---|---|
+| 20–21 | 108,8 m | 7/20 | 105,4 ms | 114,5 ms | via gcs (direta) | 234 |
+| 21–22 | 113,2 m | 3/20 | 108,6 ms | 110,6 ms | via gcs | 226 |
+| 22–23 | 117,5 m | 6/20 | 81,3 ms | 109,1 ms | via gcs | 212 |
+| 23–24 | 121,8 m | 16/20 | 1,2 ms | 105,1 ms | via gcs | 205 |
+| 24–25 | 126,2 m | 20/20 | 1,0 ms | 1,3 ms | via drone2 | 196 |
+
+Mostra sozinho a troca para o relay. Também mostra um limite: a rota é lida
+a cada 1 s, então a janela 23–24 s já melhorou mas ainda aparece "via gcs"
+(a troca real foi entre as leituras de 23,0 s e 24,0 s).
+
+**Propostas levadas à usuária (aguardando ok).**
+1. **Janela por tempo**, 1 s por padrão (mesmo passo de `routes.csv` e
+   `signal.csv`), alterável por um campo opcional no config. Cada pacote
+   entra na janela do seu **envio** (pacote perdido não tem chegada). A
+   janela 0 começa no início do sender (mesmo t=0 da mobilidade).
+   Além disso, **tabela por faixa de distância** (10 m), igual à da seção
+   4.1, usando a distância no instante de envio de cada pacote.
+2. **Distância** em linha reta entre a origem e o destino de cada sentido
+   (em broadcast, uma por receiver), com as posições dos dois (ambos podem
+   se mover). Em multi-hop não é o comprimento do caminho; a coluna de rota
+   diz por quem passou.
+3. **Métricas por janela:** as mesmas do total (enviados, entregues,
+   perdidos, taxa de perda, maior rajada, latência mín/mediana/média/máx,
+   jitter), sem p95/p99 (poucos pacotes por janela).
+4. **Cruzar com rota e sinal:** próximo salto e TQ da melhor rota da origem
+   para o destino (`routes.csv`) e sinal da origem para o próximo salto
+   (`signal.csv`), da leitura feita na janela. Em broadcast o BATMAN
+   inunda a malha; a rota é só informativa.
+5. **Saída:** `windows-<origem>-<destino>.csv` e
+   `distance-<origem>-<destino>.csv`; no `summary.json` só os caminhos e o
+   tamanho da janela; no terminal, uma linha por sentido (ex.: primeira
+   perda em t e a que distância).
+6. **Janelas sem pacotes:** linha mantida com `sent = 0` e latência vazia
+   (distância e rota preenchidas), do t=0 ao fim do sender. "Nada enviado"
+   (`sent = 0`) é diferente de "tudo perdido" (`sent = 20, delivered = 0`).
+   Nunca preencher vazio com zero.
+
+---
+
+## D17. Por que o testbed move os nós em vez de usar a mobilidade do Mininet-WiFi (23/11/2026; explicação; decisão sobre modelos aleatórios pendente)
+
+**Contexto: quando surgiu.** Pergunta da usuária antes da semana 5: por que
+não usar `net.setMobilityModel(time=0, model='RandomDirection', max_x=100,
+max_y=100, seed=20)` do próprio Mininet-WiFi, em vez de o testbed criar a
+trajetória? Não seria menos proveitoso e mais trabalho para o usuário?
+
+**Origem da escolha.** O plano (`docs/Plano_execucao`, tabela de riscos)
+previa como plano B "uma thread do testbed interpola a trajetória e chama
+`setPosition()`", com a nota "talvez seja até melhor como plano A; a prova
+de conceito decide". A PoC de 05/11 validou `setPosition()` com `DockerSta`
++ wmediumd. A mobilidade nativa **nunca foi testada** no testbed com
+`DockerSta`. Modelos aleatórios ficaram "só se sobrar tempo" (fora de
+escopo no CLAUDE.md).
+
+**O que o código do Mininet-WiFi faz (lido em
+`mn_wifi/net.py` e `mn_wifi/mobility.py`, versão instalada no host).**
+1. **Relógio:** a mobilidade nativa começa dentro de `net.build()`
+   (`check_if_mob`). O `time=0` conta a partir da montagem da rede, não do
+   início do protocolo. No testbed, entre montar a rede e iniciar o sender
+   há a espera da malha (≈9–10 s, até `network_ready_timeout_seconds`) e a
+   captura. Os nós já estariam se movendo durante a espera da malha, e a
+   posição no início do protocolo dependeria de quanto a espera demorou.
+   No testbed, t=0 é o início do sender (D15), o mesmo t=0 de
+   `positions.csv` e das janelas da semana 5.
+2. **Espera da malha:** com nós andando ao acaso desde a montagem, o ping
+   de prontidão (D3) pode não passar, ou passar numa posição e o protocolo
+   começar em outra.
+3. **Modelos aleatórios (`RandomDirection`, `RandomWalk`, `RandomWayPoint`,
+   `GaussMarkov`...):** só 2D (z = 0); posição atualizada a cada 0,5 s;
+   posição inicial sorteada dentro da área. A `seed` fixa o sorteio do
+   movimento (numpy), mas não o *fading* do wmediumd: mesma seed = mesmo
+   caminho, não os mesmos resultados.
+4. **Trajetória nativa (`net.mobility(sta, 'start'/'stop', ...)`):** um
+   trecho reto de início a fim por nó; o laço que move os nós roda sem
+   pausa (espera ativa, ocupa um núcleo da CPU durante todo o movimento),
+   e a espera até `mob_start_time` do modelo aleatório também.
+5. **Registro:** a mobilidade nativa não grava as posições; o testbed
+   precisaria lê-las de qualquer jeito para `positions.csv` e para cruzar
+   com perda/latência.
+
+**Para o usuário, o esforço é o mesmo.** Em ambos os casos ele escreve
+alguns campos no YAML (o testbed nunca pede código Python). O que o
+testbed controla é *quando* e *como* o movimento acontece.
+
+**Sobre ser "menos proveitoso".** A trajetória definida é o que permite
+perguntas reproduzíveis do tipo "a partir de que distância o protocolo
+falha?" (mesma trajetória em várias execuções; comparar com e sem relay,
+como exp-08 × exp-09). O modelo aleatório responde a outra pergunta: "como
+o protocolo se comporta num enxame se movendo de forma imprevisível?". Os
+dois são úteis; não são substitutos.
+
+**Possível caminho, se a usuária quiser modelos aleatórios (aguarda
+decisão).** Os modelos do Mininet-WiFi são geradores Python
+(`random_direction(...)`, `random_waypoint(...)` etc., em
+`mn_wifi/mobility.py`) que devolvem a próxima posição de cada nó. O
+testbed pode usar esses mesmos geradores dentro da sua thread
+(`testbed/mobility.py`), com t=0 no início do sender, seed no config e
+registro em `positions.csv`: reaproveita os modelos sem perder o relógio
+nem o registro. Exemplo de config: `mobility: {type: random, model:
+RandomDirection, area: [100, 100], seed: 20, speed: [1, 5]}`. Custo
+estimado: 1–2 dias, mais uma execução real. Está fora do escopo atual
+(prazo ~18/12); entra se a usuária priorizar.
+
+**Decidido (23/11):** modelos aleatórios ficam como **tarefa extra**, fora
+do plano por enquanto. A usuária vai levar a questão à reunião do grupo
+(trajetória definida × modelos aleatórios do Mininet-WiFi via a thread do
+testbed) e trazer a decisão. Até lá, nada muda no código.
+
+**Adendo à D16 (23/11): decidido.** A usuária aprovou os 6 pontos da D16
+(proposta de 11/11) e pediu para incluir, na execução real da semana 5, a
+**confirmação REAL da análise nos dois sentidos**. Ela já está implementada
+desde a semana 3 (`latency.py` analisa todos os pares; TESTE AUTOMÁTICO
+`test_both_directions_and_non_udp_are_analysed`), mas nunca foi confirmada no
+real porque os binários de exemplo só enviam num sentido (o receiver não
+responde). Como confirmar: um sender temporário (fora do testbed, não
+versionado) que aceita `--destination/--port` e roda `ping -i 0.05` para o
+destino. ICMP echo/reply gera tráfego nos dois sentidos e exercita também
+a análise de um protocolo não UDP. Esperado: `latency-drone1-gcs.csv` e
+`latency-gcs-drone1.csv`. Ressalva: o status sai `inconclusive` (critério
+antigo da semana 1: UDP na porta do config), sem efeito na análise.
+
+**Implementado (23/11).**
+- `scripts/testbed/windows.py` (novo): no fim da execução, lê
+  `latency-*.csv`, `positions.csv`, `routes.csv` e `signal.csv` da pasta e
+  grava, por sentido, `windows-<origem>-<destino>.csv` (uma linha por janela,
+  de t=0 = início do sender até o fim do sender) e
+  `distance-<origem>-<destino>.csv` (uma linha por faixa com pacotes).
+  - Pacote entra na janela/faixa do seu **envio**; distância em linha reta
+    entre origem e destino nesse instante, **interpolada** entre as amostras
+    de 0,1 s de `positions.csv`. Na janela, a distância é a do meio dela.
+  - Métricas: as do total (`summarize` de `latency.py`) sem p95/p99.
+  - Rota: leituras da melhor rota da origem para o destino feitas **dentro**
+    da janela; se houve troca, `next_hop` mostra as duas (`gcs|drone2`); TQ,
+    `route_read_t` (t da leitura) e sinal/taxa para o próximo salto vêm da
+    última leitura da janela. Sem leitura na janela: vazio, nunca adivinhado.
+    Na tabela por distância, `next_hops` lista os próximos saltos vigentes no
+    envio dos pacotes da faixa.
+  - Janela sem pacotes: `sent = 0`, taxa de perda e latência vazias,
+    distância e rota preenchidas.
+  - Também roda sobre pastas antigas, sem rede:
+    `cd scripts && python3 -m testbed.windows <pasta> [--output-dir DIR]`.
+- Config: bloco opcional **`analysis`** com `window_seconds` (padrão 1) e
+  `distance_bin_meters` (padrão 10); campo desconhecido = erro (D9). (O
+  tamanho da faixa de distância configurável não estava na proposta; foi
+  acrescentado pelo mesmo motivo da janela.)
+- `run.py`: roda logo depois da análise de latência; resultado em
+  `summary.json` → `latency.windows` (tamanhos, caminhos, primeira perda por
+  sentido); problemas viram aviso, nunca mudam o status. Terminal: uma linha
+  por sentido, ex. `drone1->gcs: first loss at t=14.8s, at 84 m`.
+- TESTE AUTOMÁTICO: 227 testes, 8 novos (`tests/test_windows.py`, dados
+  sintéticos). 1 falha **anterior e alheia**: `test_repository_contract`
+  acusa `scripts/teste.yml` (arquivo da usuária) como config versionado.
+
+**Reprocessamento dos dados REAIS de 09/11 (no sandbox, sobre os CSVs das
+execuções reais; não substitui a execução real com o código novo).**
+- exp-09 (com relay): janelas de 20 a 25 s iguais ao protótipo (7/20, 3/20,
+  6/20, 16/20, 20/20 via drone2 a 126,2 m). Primeira perda t = 12,8 s a
+  76 m.
+- exp-08 (sem relay): primeira perda t = 14,8 s a 84 m (igual à seção 4.1).
+- Tabelas por distância batem com as feitas à mão, exceto por **1 pacote**
+  em algumas faixas (ex.: exp-08 90–100 m: 40/46 contra 39/45 à mão). Causa:
+  pacotes enviados exatamente na borda (ex.: 99,955 m); o testbed interpola
+  a posição no instante do envio, a conta à mão usou a amostra de 0,1 s
+  mais próxima. Os totais (698) batem.
+
+**Para a confirmação REAL:** `poc_semana5_ping.yml` (mesmo cenário do
+`poc_multihop_csv.yml`, relay a 75 m, trajetória em CSV) com
+`bin/poc_ping_sender` (temporário, ignorado pelo Git: `ping -M dont -i
+0.05`). `-M dont` tira o bit DF; sem ele, o kernel pode pôr ID 0 em todos
+os pedidos de ping (hipótese, não verificada), o que quebraria o casamento
+pelo ID. Confirma de uma vez: tabelas da semana 5, análise nos dois sentidos
+(ICMP) e cópia do CSV de trajetória (pendente desde 09/11).
+
+**Confirmação REAL — semana 5, dois sentidos e cópia do CSV (23/11,
+`logs/exp-11-semana5-ping/2026-11-23_13-55-46/`, `poc_semana5_ping.yml`,
+`poc_semana5_ping.log`).** Mesmo cenário da exp-09 (relay a 75 m, trajetória
+em CSV), sender = `ping -M dont -i 0.05`. Status `inconclusive`, como
+previsto (critério antigo: UDP na porta do config); sender `ended_by:
+testbed`, código -15 (SIGTERM), normal com `end: duration`. Malha 9,0 s,
+total 63,1 s.
+- **Dois sentidos (pendente desde a semana 3):** `drone1->gcs` (pedidos)
+  627/689, mediana 2,702 ms; `gcs->drone1` (respostas) 557/627, mediana
+  2,622 ms. O gcs enviou 627 respostas = os 627 pedidos que recebeu.
+  **Conferência independente** (bytes dos PCAPs, casando pelo número de
+  sequência do ICMP, sem o código do testbed): 627/689 e 557/627, mesmas
+  medianas; o próprio ping contou 557 respostas. Primeira análise REAL de
+  um protocolo não UDP (ICMP).
+- **IDs do IP:** 689/689 pedidos e 627/627 respostas com ID distinto,
+  nenhum com DF. (A hipótese de ID 0 sem `-M dont` não foi testada.)
+- **Cópia do CSV de trajetória (pendente desde 09/11):**
+  `trajectory-drone1.csv` na pasta; sha256 no `metadata.json` igual ao
+  `sha256sum` do original.
+- **Tabelas da semana 5:** `windows-` e `distance-` nos dois sentidos, sem
+  erros. Terminal: primeira perda `drone1->gcs` t = 9,9 s a 63 m,
+  `gcs->drone1` t = 13,0 s a 76 m. Rota do drone1 para o gcs: direta até a
+  janela 22–23 s, via drone2 a partir de 23–24 s (121,8 m); janelas 18–23 s
+  com 35–65% de perda e média 50–79 ms; depois da troca, 20/20 e ~3 ms.
+  Por distância: 110–120 m mostra `gcs|drone2`. A janela 35–36 s aparece
+  com `sent = 0` (fim do sender a ~35,0 s): regra das janelas vazias
+  exercitada.
+- **Achado novo (só visível com os dois sentidos):** a rota do gcs para o
+  drone1 oscilou: via drone2 na janela 23–24 s, **direta de novo** em
+  24–25 s, via drone2 de 25 s em diante. Nessas janelas as respostas
+  perderam mais (4/20 e 14/19) que os pedidos (20/20 e 20/20). A troca de
+  rota não é simétrica: cada nó decide a sua. Para protocolos de diálogo
+  (EDHOC), a perda de um sentido basta para falhar o handshake.
+- Variação entre execuções: a primeira perda de `drone1->gcs` foi a 63 m
+  (exp-09: 76 m) e a troca para o relay a ~122 m (exp-09: ~124 m). Mesmo
+  cenário, resultados diferentes (aleatoriedade do wmediumd, D11).
+
+**Confirmação REAL — semana 5 em broadcast com mobilidade (23/11,
+`logs/exp-12-semana5-broadcast/2026-11-23_14-05-56/`,
+`poc_semana5_broadcast.yml`).** drone1 de 20 a 150 m em 30 s (YAML),
+receivers gcs (x=0) e drone2 (x=75); `analysis` com janela 2 s e faixas de
+5 m. `success`, malha 8,7 s, total 62,2 s.
+- **697/697 nos dois receivers**, nenhuma perda; mediana 0,959 ms (gcs) e
+  0,950 ms (drone2). Conferência independente (bytes dos PCAPs, UDP para
+  192.168.123.255:5000): 697 enviados com IDs distintos, 697/697 nos dois,
+  0 duplicatas, mesmas medianas.
+- **Bloco `analysis` exercitado no real:** 18 janelas de 2 s (a última,
+  34–36 s, com 20 pacotes) e faixas de 5 m.
+- **drone1 → drone2:** distância 51 → 1,3 m (passagem em t ≈ 12,7 s) → 75 m;
+  sinal de -81 a -22 dBm na passagem. Na tabela por distância, as faixas
+  de 0 a 50 m juntam ida e volta (`t_first`/`t_last` separados, ex.:
+  50–55 m: t = 0,0 e 25,3 s); de 55 m em diante só a volta.
+- **drone1 → gcs: o broadcast chegou por dois saltos.** Sem relay, na
+  exp-08 (unicast), só 2/101 chegaram a 150 m. Aqui, 100% até 150 m: o
+  BATMAN retransmite o broadcast pela malha e o drone2 repassou ao gcs. A
+  latência mostra a mudança: mediana ~0,93 ms até ~100 m (um salto) e
+  ~1,83 ms a partir da janela 20–22 s (~111 m), o dobro (dois saltos); de
+  30 s em diante, mínimo 1,70 ms (só pelo relay). Entre 20 e 30 s o mínimo
+  ainda é ~0,9 ms: alguns pacotes ainda vieram direto. O BATMAN descarta a
+  segunda cópia (0 duplicatas na `bat0`). Hipótese (não verificada): vale a
+  cópia que chega primeiro, e quando o enlace direto piora a cópia pelo
+  relay ganha.
+- A coluna `next_hop` (rota unicast) só trocou para drone2 na janela
+  24–26 s, depois de a latência já ter dobrado: em broadcast ela é só
+  informativa, como previsto na proposta.
+- **Lição para quem usa o testbed:** com broadcast e um nó intermediário,
+  "entregue" não significa "alcance direto"; a latência por janela é o que
+  mostra o caminho.
+
+**Confirmação REAL — semana 5 em unicast, gêmeo do broadcast (23/11,
+`logs/exp-13-semana5-unicast/2026-11-23_14-15-55/`,
+`poc_semana5_unicast.yml`).** Mesmo cenário da exp-12 (3 nós, mesma
+trajetória, janela 2 s, faixas 5 m), em unicast drone1 → gcs; drone2 só
+relay. `success`, malha 8,1 s, total 62,0 s, sem avisos.
+- **627/697 entregues (10% de perda)**, maior rajada 6, mediana 1,134 ms,
+  p95 103,5 ms. Conferência independente (bytes dos PCAPs): 697 IDs
+  distintos, 627 entregues, mesma mediana. Primeira perda t = 14,7 s a
+  84 m (igual à exp-08).
+- Por janela: sem perda até ~80 m (0,24 ms até 60 m; ~2,5 ms a 68–76 m);
+  de 85 a 111 m a perda cresce (36/39 → 14/40) e a mediana vai a ~104 ms
+  com a rota ainda direta; na janela 22–24 s (~120 m) `next_hop` vira
+  drone2 e a entrega volta a 38/39 com ~1,1 ms; a 150 m, ~3,5 ms.
+- **Unicast × broadcast no mesmo cenário (exp-13 × exp-12):** broadcast
+  697/697 (o BATMAN inunda; o drone2 repassou sem esperar troca de rota,
+  latência dobrou a ~111 m); unicast 627/697 (o pacote só vai pelo relay
+  quando o BATMAN troca a rota; até lá, 85–120 m com perda e ~100 ms). A
+  diferença é exatamente a janela antes da troca de rota.
+
+---
+
+## D18. Contrato novo: comando com marcadores, pastas de dados e saída, status por tráfego IP (23/11/2026; aprovado, implementando)
+
+**Contexto: quando surgiu.** Semana 6 do plano. O testbed monta hoje o
+comando num formato fixo (`sender --destination <IP> --port <porta>`,
+`receiver --address <IP> --port <porta>`). Um programa real (ex.:
+PQ-EDHOC) quase certamente usa outros argumentos e não rodaria sem um
+script adaptador. A base já estava decidida no CLAUDE.md (comando com
+marcadores, variáveis de ambiente, `/opt/protocol/data` e
+`/opt/protocol/out`); os detalhes abaixo foram propostos em 23/11 e
+aprovados pela usuária. Ela perguntou se os marcadores eram só para
+broadcast: não, valem nos dois modos; só `{destination}` muda de valor
+(unicast: IP do receiver; broadcast: IP de broadcast).
+
+**Decidido (23/11).**
+1. Bloco `commands` no config, uma linha por papel (`sender`,
+   `receiver`). O programa pode estar em `bin/` (montado em
+   `/opt/protocol/bin`) ou instalado na imagem do usuário. O comando roda
+   **sem shell** (dividido como na linha de comando, `shlex`), para o
+   SIGTERM chegar direto ao programa; quem precisar de shell escreve
+   `sh -c '...'` (cuidado com sinais: vai para o guia).
+2. Marcadores, nos dois modos: `{address}` (IP do próprio nó),
+   `{destination}` (unicast: IP do receiver; broadcast: IP de broadcast),
+   `{port}`, `{node_id}`, `{mode}`, `{data_dir}` (`/opt/protocol/data`),
+   `{output_dir}` (`/opt/protocol/out`). Marcador desconhecido = erro antes
+   de rodar.
+3. Compatibilidade: sem `commands`, valem os comandos de hoje (os
+   `poc_*.yml` e o `config.yml` continuam funcionando). `binaries` continua
+   aceito.
+4. Pastas: `protocol-data/<node_id>/` (host) → `/opt/protocol/data`
+   (só leitura, opcional); `/opt/protocol/out` gravado direto em
+   `logs/.../out-<node_id>/` (em vez de copiar no fim) e é a pasta de
+   trabalho do programa.
+5. Variáveis `TESTBED_NODE_ID`, `TESTBED_ROLE`, `TESTBED_MODE`,
+   `TESTBED_DATA_DIR`, `TESTBED_OUTPUT_DIR`.
+6. Status: `success` passa a exigir **qualquer pacote IP do sender para um
+   receiver** (ou broadcast) no PCAP do sender, e não mais UDP na
+   `protocol.port`. Motivo: o teste com ping (exp-11) saiu `inconclusive`
+   funcionando. Ajustar junto o `validate_scenario.py` (ainda exige código
+   de saída 0 dos receivers).
+7. Exemplo completo: par pergunta e resposta em Python, com imagem própria
+   `FROM drone:latest`, usando marcadores, um arquivo de `{data_dir}` e um
+   log em `{output_dir}`.
+8. Guia "integre seu protocolo" em `docs/` e atualização de README,
+   `BIN_INTERFACE.md`, `CONTEXTO_AGENTE.md` e testes de contrato.
+Fora por enquanto: comando diferente por receiver.
+
+**Implementado (23/11).**
+- `config.py`: bloco `commands` (`sender`, `receiver`), validado na carga:
+  dividido com `shlex` (aspas valem), marcadores conhecidos só os 7 da
+  lista, `{{`/`}}` para chave literal, comando vazio ou papel desconhecido
+  = erro. Sem `commands`, os comandos de antes (a partir de `binaries`).
+  `expand_command` divide primeiro e preenche depois, argumento por
+  argumento (um valor nunca vira dois argumentos). `protocol_data_dir` =
+  `<raiz>/protocol-data`.
+- `runner.py`: monta o comando de cada nó com os marcadores (o mesmo
+  `{destination}` para sender e receivers), passa `TESTBED_*` e, se o nó
+  tem pasta de saída, começa em `/opt/protocol/out`. Não existe mais
+  argumento fixo no runner (guardado por teste de contrato).
+- `network.py`: `container_popen(extra_env, cwd)`. A pasta de trabalho é
+  trocada com `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'`: o `exec`
+  substitui o shell pelo programa, então o SIGTERM continua chegando direto
+  ao programa (D2). Não foi usado `nsenter --wd=<dir>` porque o significado
+  dessa opção com `--root` mudou entre versões do util-linux. Exige
+  `/bin/sh` na imagem (`FROM drone:latest` tem). `node_volumes`: binários
+  (ro) + `protocol-data/<nó>/` se existir (ro) + `out-<nó>` (rw, só
+  participantes).
+- `rundir.py`: cria `out-<nó>/` para sender e receivers.
+- `metrics.py` (status): `traffic_status = observed` se a análise de rede
+  achou ao menos um pacote IP enviado pelo sender a um receiver (ou
+  broadcast). Se a análise não leu os PCAPs, vale o critério antigo (UDP na
+  porta). O `metrics.csv` antigo não mudou.
+- `validate_scenario.py`: código de saída só é exigido de quem terminou
+  sozinho (`ended_by: self`); compara o comando de cada processo com o
+  comando esperado (mesmas regras do runner) em vez de procurar
+  `--address/--port`; não exige mais UDP na porta.
+- Exemplo: `examples/echo/` (`Dockerfile` `FROM drone:latest`,
+  `echo_client.py`, `echo_server.py`, `config.yml`) e
+  `protocol-data/drone1/message.txt`. O cliente faz 50 perguntas, espera
+  cada resposta (0,5 s), grava `client.log` e termina sozinho (`end:
+  sender`); o servidor responde até o SIGTERM e grava `server.log`.
+  Testado no sandbox só pela interface de loopback: 5/5.
+- TESTE AUTOMÁTICO: 243 testes, 16 novos (`tests/test_contract.py` 10,
+  `test_metrics` 3, `test_validate_scenario` 2, contrato 1). 1 falha
+  anterior e alheia (`scripts/teste.yml`).
+- Documentação (ponto 8) fica para depois da confirmação REAL, para
+  descrever o comportamento confirmado.
+
+**Confirmação REAL — contrato novo com o exemplo echo (23/11,
+`logs/exp-14-exemplo-echo/2026-11-23_14-53-27/`, `examples/echo/config.yml`,
+`poc_semana6_echo.log`).** Imagem `drone-echo:latest` construída pela
+usuária (`FROM drone:latest`; id 95304c2e… no `metadata.json`).
+- `success` com `traffic_status: observed` pelo critério novo; total
+  31,7 s, malha 8,1 s.
+- **Comandos com marcadores:** no `summary.json`, sender
+  `echo_client --server 192.168.123.1 --port 5000 ... --message-file
+  /opt/protocol/data/message.txt --log /opt/protocol/out/client.log` e
+  receiver `echo_server --bind 192.168.123.1 ...`, exatamente a expansão
+  esperada. Programas vindos da imagem do usuário (não de `bin/`).
+- **Variáveis, pasta de trabalho, dados e saída:** `out-drone1/client.log`
+  começa com `node=drone1 role=sender ... cwd=/opt/protocol/out` e
+  termina com `answered 50/50` (logo leu `protocol-data/drone1/message.txt`);
+  `out-gcs/server.log`: `node=gcs role=receiver ... cwd=/opt/protocol/out`,
+  `answered 50`.
+- **Sinais com o `sh -c ... exec`:** o servidor recebeu o SIGTERM e gravou
+  o log no encerramento (`ended_by: testbed`, código 0). Sender terminou
+  sozinho: `ended_by: self`, código 0, 5,12 s (primeira vez com `end:
+  sender` terminando bem desde o sender contínuo da semana 4).
+- **Dois sentidos, UDP:** `drone1->gcs` 50/50 (mediana 1,657 ms) e
+  `gcs->drone1` 50/50 (mediana 0,165 ms). Conferência independente (bytes
+  dos PCAPs, casando por ID): 50/50 e 50/50, mesmas medianas.
+- **Observação em aberto (não explicada):** a pergunta levou ~10× mais que
+  a resposta. A taxa do Wi-Fi era 13 Mbit/s nos dois sentidos
+  (`signal.csv`), então a hipótese da taxa (HIPOTESES_2026-11-09) **não**
+  explica este caso. Hipótese nova, não verificada: a pergunta sai depois
+  de 0,1 s de canal ocioso e a resposta sai logo após um quadro recebido;
+  algo no acesso ao meio emulado pode custar mais após ociosidade. Precisa
+  de teste próprio se for importante.
+
+**Confirmação REAL — compatibilidade (23/11,
+`logs/exp-01-unicast/2026-11-23_14-57-18/`, `scripts/config.yml` sem
+`commands`).** `success`, 199/199, mediana 0,206 ms, malha 10,3 s, total
+39,1 s. Comandos iguais aos de antes (`/opt/protocol/bin/sender
+--destination 192.168.123.1 --port 5000`; receiver `--address ... --port
+5000`), sender e receiver `ended_by: testbed`, código 0. Pastas
+`out-drone1/` e `out-gcs/` criadas e vazias (os binários de exemplo não
+gravam nada).
+
+---
+
+## D19. Mobilidade aleatória: Random Waypoint gerado como trajetória (23/11/2026; caminho aprovado, detalhes aguardando ok)
+
+**Contexto: quando surgiu.** D17 deixou modelos aleatórios como tarefa
+extra. Em 23/11, ao comparar dois caminhos (A: usar os geradores do
+Mininet-WiFi na thread do testbed, ~1–2 dias, com conflito de posição
+inicial, só 2D e testes só com simulação; B: o testbed sorteia com `seed`
+uma sequência de pontos e velocidades e a transforma numa trajetória
+`[t, x, y, z]` comum, ~meio dia), a usuária decidiu: **manter a trajetória
+definida e acrescentar o B**. Não é "um ou outro": cada nó escolhe o seu
+tipo de mobilidade.
+
+**Por que B.** Reaproveita tudo o que já foi confirmado no real (thread de
+movimento, `positions.csv`, tabelas por janela e distância); o nó parte da
+`position` configurada, então a espera da malha continua valendo; a mesma
+`seed` gera o mesmo caminho (os resultados ainda variam pelo *fading* do
+wmediumd); funciona em 3D; testável aqui sem `mn_wifi`.
+
+**Proposta de config (aguardando ok).**
+```yaml
+mobility:
+  type: random_waypoint
+  area: [[0, 0, 10], [150, 150, 10]]   # canto mínimo e máximo [x, y, z]
+  speed: [2, 6]                        # m/s, sorteada por trecho
+  pause: [0, 2]                        # s parado em cada ponto, sorteado
+  seed: 20
+  duration: 60                         # s de trajetória gerada (depois, parado)
+```
+- Começa na `position` do nó (que deve estar dentro da área).
+- A trajetória gerada é gravada em `trajectory-<nó>.csv` na pasta da
+  execução, e seed e parâmetros no `metadata.json`.
+
+**Explicação: binário compilado na máquina do usuário basta? (23/11, D18).**
+Pergunta da usuária. Nem sempre: por padrão o Linux compila de forma
+dinâmica, e o binário procura as bibliotecas (`liboqs.so`, `libssl.so`,
+`libc.so.6`...) no sistema **onde roda**. O container tem o seu próprio
+sistema de arquivos (Ubuntu 24.04 da `drone:latest`) e não enxerga as
+bibliotecas do host. Falhas típicas: biblioteca ausente (`error while
+loading shared libraries`) e glibc mais nova no host que no container
+(``GLIBC_2.xx not found``), esta mesmo sem biblioteca extra. Soluções:
+compilar estático; compilar dentro de um container `FROM drone:latest`; ou
+imagem própria com as bibliotecas. **Decidido:** manter a imagem própria
+como caminho recomendado (já é o do guia). Para conferir um binário:
+`file` e `ldd` dentro da `drone:latest`.
+
+**Formato aprovado (23/11).** A usuária deu ok ao formato acima, depois de
+perguntar se precisava de verificação formal (resposta: não para um modelo
+curto e bem definido; testes da definição, teste estatístico, execução
+real e documentação). Acrescentado: velocidade mínima > 0 obrigatória
+(Yoon, Liu e Noble, 2003). Comparação completa com a versão do
+Mininet-WiFi (que vem da pymobility e começa no estado estacionário),
+melhorias, desvantagens e referências: em `docs/MOBILIDADE_RANDOM_WAYPOINT.md`,
+documento de estudo da usuária, **local e não versionado** (a pedido dela).
+No fim do projeto, um resumo dessa diferença entra no README.
+
+**Implementado (23/11).**
+- `scripts/testbed/random_waypoint.py` (novo): `generate(position, área,
+  velocidade, pausa, seed, duração)` sorteia com `random.Random(seed)`
+  destino uniforme na área (3D), velocidade uniforme, trecho reto, pausa
+  uniforme; corta o último trecho em `duration`; devolve `[t, x, y, z]`.
+- `config.py`: `type: random_waypoint` com `area`, `speed` (mínimo > 0),
+  `pause` (opcional, padrão `[0, 0]`, mínimo ≥ 0), `seed` (opcional: sem ela,
+  o testbed sorteia uma e a registra, então o caminho continua repetível),
+  `duration`; a área precisa ter tamanho positivo em x e y e conter a
+  `position`. O caminho é gerado ao carregar o config.
+- `mobility.py`: move qualquer nó com `waypoints` (trajetória ou Random
+  Waypoint), pela mesma thread de 0,1 s.
+- `rundir.py`: grava o caminho sorteado em `trajectory-<nó>.csv` (mesmo
+  formato `t,x,y,z` de `waypoints_csv`, então pode ser reusado como
+  trajetória definida). `metadata.py`: `trajectories.<nó>` ganha
+  `random_waypoint` (área, velocidade, pausa, duração, seed e se a seed veio
+  do config) e o sha256 do arquivo.
+- `scripts/config.yml`: exemplo comentado.
+- TESTE AUTOMÁTICO: 255 OK (12 novos em `tests/test_random_waypoint.py`:
+  definição, teste estatístico com qui-quadrado nos destinos e quartis das
+  velocidades, config, arquivos da execução).
+- Validação REAL pendente: `poc_random_waypoint.yml` (drone1 aleatório em
+  120 × 120 m, altitude 10–30 m, seed 20, 60 s; gcs no solo; drone2 parado
+  a 60 m). Caminho previsto: longe de todos entre ~16 e ~33 s (130–139 m do
+  gcs), volta a ~62 m do gcs em ~45 s, termina a ~85 m.
+
+**Confirmação REAL — Random Waypoint (23/11,
+`logs/exp-15-random-waypoint/2026-11-23_15-46-37/`,
+`poc_random_waypoint.yml`).** `success`, malha 8,1 s, total 86,9 s, 616
+atualizações de posição, 64 amostras de rotas/sinal.
+- **Caminho:** `trajectory-drone1.csv` idêntico ao previsto no sandbox com
+  a seed 20 (12 pontos; mesma seed = mesmo caminho, também no host);
+  `positions.csv` segue o arquivo com desvio máximo de 0,004 m em 616
+  linhas, altitude variando de 10 a 27 m; `metadata.json` com área,
+  velocidade, pausa, duração, `seed: 20` e sha256.
+- **Medidas:** 868/1194 entregues, mediana 2,658 ms; conferência
+  independente (bytes dos PCAPs): 1194 / 868 / 2,658 ms. Primeira perda
+  t = 8,9 s a 84 m (de novo ~84 m, como na exp-08 e na exp-13).
+- **Por janela:** perda crescente de 84 a 125 m pela rota direta; a 133 m
+  (t = 15 s) a rota passa a ser via drone2 e a entrega volta a ~80%; com o
+  drone1 longe também do drone2 (~110–120 m), o TQ cai de 196 para 21 e a
+  entrega cai a 1–4 de 20 (27–34 s); **na volta**, a entrega se recupera a
+  partir de ~37 s (~100 m do gcs) ainda via drone2, e a rota volta a ser
+  direta em t = 42 s (~74 m). Sem perda de 40 a 51 s.
+- **Achado:** a recuperação veio antes do previsto (~45 s): o relay
+  começou a funcionar assim que o drone1 se aproximou do drone2, antes de
+  ficar perto do gcs. A previsão olhava só a distância ao gcs. Primeiro
+  registro real de um nó que se afasta e **volta**: o BATMAN refez a rota
+  (via relay e depois direta) sem intervenção.
+
+---
+
+## D20. Repetições com estatística (23/11/2026; aprovado, implementando)
+
+**Contexto: quando surgiu.** Item "se der tempo" da semana 6. O wmediumd
+sorteia o *fading* sem semente: o mesmo config não dá os mesmos números
+(mesmo cenário: primeira perda a 76 m na exp-09 e a 63 m na exp-11). Uma
+execução só não sustenta uma afirmação nem uma comparação entre cenários.
+
+**Decidido (23/11, aprovado pela usuária).**
+1. `scripts/run.py config.yml --repeat N` (sem a opção, uma execução, como
+   antes).
+2. Pastas: `logs/<experimento>/<data-hora>-campanha/rep-01/ ... rep-NN/`
+   (cada uma uma pasta normal) + `statistics.json` e `statistics.csv` na
+   pasta da campanha.
+3. Medidas resumidas por sentido: taxa de entrega; latência
+   mín/mediana/média/p95/máx; jitter; maior rajada de perda; t e distância
+   da primeira perda; mais o tempo da espera da malha e o status de cada
+   repetição.
+4. Média, desvio padrão (amostral) e IC 95% pela t de Student; com menos
+   de 2 valores, sem IC.
+5. Random Waypoint: a mesma seed em todas as repetições (mesmo caminho;
+   mede só a variação do rádio). `--vary-seed`: seed + (repetição − 1),
+   para caminhos diferentes.
+6. Repetição que falha fica registrada, fora da estatística; o resumo diz
+   quantas foram usadas e por que as outras não.
+7. Terminal: uma linha por repetição e, no fim, a tabela média ± IC.
+8. Validação REAL: `scripts/config.yml --repeat 5`.
+
+**Implementado (23/11).**
+- `scripts/testbed/campaign.py` (novo): `describe` (n, média, desvio
+  amostral, IC 95% = média ± t(n−1) · desvio / √n, mín, máx, valores),
+  tabela da t de Student (95%, bilateral; entre linhas, a mais
+  conservadora), `campaign_directory`, `repetition_seeds`,
+  `repetition_measures` (lê do `summary.json`: taxa de entrega,
+  latência mín/mediana/média/p95/máx, jitter, maior rajada, t e distância
+  da primeira perda; mais a espera da malha), `summarize`,
+  `write_statistics` (`statistics.json` com campanha, repetições e
+  estatística; `statistics.csv` com uma linha por medida), `format_table`.
+- `run.py`: o `main()` antigo virou `run_once()` sem mudança de
+  comportamento; `--repeat N` chama `run_campaign`, que carrega o config
+  uma vez para fixar as seeds do Random Waypoint (sorteadas uma vez se o
+  config não tiver), roda `rep-01..rep-NN` dentro da pasta da campanha e
+  imprime a tabela. `--vary-seed`: seed + (repetição − 1). Repetição com
+  status `failed` ou que não terminou fica fora da estatística, com o
+  motivo. Código de saída 0 só se todas as repetições foram usadas.
+- `config.py`: `load_config(..., seeds={nó: seed})` fixa a seed do Random
+  Waypoint; `rundir.py`: `prepare_run_directory(..., run_name="rep-NN")`.
+- Medida sem valor numa repetição (ex.: sem perda, logo sem "primeira
+  perda") não entra na média; o `n` de cada medida mostra quantas
+  entraram.
+- TESTE AUTOMÁTICO: 266 OK (11 novos em `tests/test_campaign.py`, com a
+  estatística conferida contra valores calculados à parte e o laço de
+  `--repeat` com execuções falsas).
+
+**Correção (23/11, primeira tentativa REAL).** `sudo python3 scripts/run.py
+--repeat 5` rodou a rep-01 normalmente (`success`, 199/199) e parou com
+`KeyError: 'summary'` em `run_campaign`. Causa: dentro de `run_once`, o
+dicionário devolvido à campanha se chamava `result`, o mesmo nome da
+variável do laço que imprime `drone1->gcs: ...`; depois do laço, `result`
+era o resultado de um sentido. Os testes não pegaram porque, neles, a
+análise de latência é simulada sem sentidos (o laço não roda) e o teste da
+campanha simula o `run_once` inteiro. Corrigido renomeando para `outcome`;
+teste de regressão novo em `tests/test_run.py` (`run_once` devolve o
+summary depois de imprimir os sentidos). TESTE AUTOMÁTICO: 267 OK. A pasta
+incompleta `logs/exp-01-unicast/2026-11-23_16-03-49-campanha/` (só rep-01,
+sem estatística) fica como registro.
+
+**Confirmação REAL — campanha de 5 repetições (23/11,
+`logs/exp-01-unicast/2026-11-23_16-05-20-campanha/`,
+`scripts/config.yml --repeat 5`, `poc_repeticoes.log`).** 5/5 `success`,
+5/5 usadas; `statistics.json` e `statistics.csv` gravados; ~38 s por
+repetição.
+- Espera da malha 9,29 ± 1,09 s (IC 95% 8,20–10,39; valores 8,1 a
+  10,2 s: os degraus de ~1 s da espera, D8).
+- drone1 → gcs: entrega 100% nas 5; latência mediana **0,239 ±
+  0,001 ms** (IC 95% 0,238–0,241), p95 0,551 ± 0,183 ms, máxima 3,39 ±
+  0,16 ms, jitter 0,147 ± 0,027 ms; primeira perda: nenhuma (n = 0, como
+  esperado).
+- **Conferência independente:** média e IC da mediana e do p95
+  recalculados à mão a partir dos `summary.json` de cada repetição: iguais.
+- Leitura: a 20 m e parado, a mediana é muito estável entre execuções; a
+  variação aparece nas caudas (p95 com IC largo). O `0,925 ms` do config
+  padrão em 09/11 não se repetiu em nenhuma das 5 (hipótese da taxa do
+  Wi-Fi, HIPOTESES_2026-11-09).
+- Ajuste depois da execução: o campo `campaign.config` saía vazio quando o
+  comando não indicava o config; agora registra o `scripts/config.yml`.

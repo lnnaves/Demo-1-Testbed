@@ -1,10 +1,13 @@
 # Testbed de protocolos para drones: guia completo
 
-Estado em 09/11/2026, depois das semanas 1 a 4 do plano de execução.
+Estado em 23/11/2026 (fim do dia): semanas 1 a 6 do plano concluídas,
+mais Random Waypoint (D19) e repetições com estatística (D20). Primeira
+versão: 09/11, semanas 1 a 4.
 
 Este documento explica o testbed para quem conhece só a ideia geral: um
 ambiente que roda os programas (binários) de um protocolo em drones
-emulados. Ele cobre o que o testbed faz, como faz, o que já foi validado em
+emulados. Para integrar um protocolo na prática, o passo a passo está em
+[`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md). Este guia cobre o que o testbed faz, como faz, o que já foi validado em
 execução real, o que ainda não foi, e por que cada decisão foi tomada.
 
 Convenções:
@@ -53,7 +56,8 @@ entre "drones", cada um num container Docker:
 O testbed é **agnóstico de protocolo**: funciona com qualquer programa Linux
 que se comunique por IP. Ele nunca lê o conteúdo das mensagens nem a saída
 do programa para decidir nada. Testar o PQ-EDHOC, por exemplo, significa
-trocar os binários de exemplo pelos do PQ-EDHOC.
+pôr os programas dele numa imagem própria e escrever no config como
+chamá-los (seção 2).
 
 Prioridades do projeto (prazo: ~18/12/2026):
 1. unicast (um destinatário) e broadcast (todos) funcionando;
@@ -80,19 +84,43 @@ protocolo.
 | Calcular métricas, gerar relatórios | |
 | Limpar o ambiente | |
 
-**O que o programa do usuário precisa ter hoje** (contrato atual, que muda
-na semana 6):
-- rodar em Linux, sem interação, em primeiro plano;
-- o **sender** aceitar `--destination <IP> --port <porta>`;
-- o **receiver** aceitar `--address <IP> --port <porta>` e encerrar ao
-  receber SIGTERM.
+**O que o programa do usuário precisa ter** (contrato da semana 6, D18):
+- rodar em Linux, sem interação, em primeiro plano, usando IPv4;
+- aceitar endereço e porta pela linha de comando, **em qualquer formato**;
+- se não terminar sozinho, encerrar ao receber SIGTERM.
 
-Na semana 6 o contrato vira um comando livre com marcadores (`{address}`,
-`{destination}`, `{port}`...), para aceitar qualquer formato de argumentos.
+O usuário escreve o comando no config, com **marcadores** que o testbed
+preenche para cada nó:
+
+```yaml
+commands:
+  sender:   "meu-initiator coap://{destination}:{port} --log {output_dir}/init.log"
+  receiver: "meu-responder --bind {address} --port {port} --key {data_dir}/key.pem"
+```
+
+| Marcador | Valor |
+|---|---|
+| `{address}` | IP do próprio nó |
+| `{destination}` | Unicast: IP do receiver. Broadcast: IP de broadcast |
+| `{port}`, `{node_id}`, `{mode}` | Porta do config, nome do nó, `unicast`/`broadcast` |
+| `{data_dir}` | `/opt/protocol/data`: a pasta `protocol-data/<nó>/` do repositório, só leitura (chaves, certificados) |
+| `{output_dir}` | `/opt/protocol/out`: gravada em `out-<nó>/` na pasta da execução; é a pasta de trabalho do programa |
+
+Também há variáveis de ambiente (`TESTBED_NODE_ID`, `TESTBED_ROLE`,
+`TESTBED_MODE`, `TESTBED_DATA_DIR`, `TESTBED_OUTPUT_DIR`). O comando roda
+sem shell, para o sinal de parada chegar direto ao programa. Marcador
+desconhecido é erro antes de rodar.
+
+Até a semana 5 o contrato era fixo (`sender --destination <IP> --port
+<porta>`, `receiver --address <IP> --port <porta>`): um programa real
+precisaria de um script adaptador. Esse formato continua sendo o padrão
+quando o config não tem `commands`.
 
 Os binários de exemplo (`bin/sender` e `bin/receiver`) **não são um
 protocolo**. Servem só para testar o testbed: o sender manda 1 byte (`\x00`)
-a cada 50 ms até ser encerrado; o receiver só escuta.
+a cada 50 ms até ser encerrado; o receiver só escuta. O exemplo completo
+do contrato novo é [`examples/echo/`](../examples/echo/): um par de
+pergunta e resposta em Python, com imagem própria `FROM drone:latest`.
 
 ---
 
@@ -150,7 +178,7 @@ no `timing.json` (D10). Tempos da execução real de mobilidade (09/11):
 | 7 | `start_capture` | 0,5 s | Inicia um tcpdump por participante |
 | 8 | `execute_protocol` | 37,4 s | Receivers → 1 s → sender; move os nós e observa rotas/sinal; encerra; espera o *drain*; para os receivers |
 | 9 | `stop_capture` | ~0 s | Para os tcpdumps |
-| 10 | `analyze_network` | ~0 s | Casa os pacotes entre PCAPs; calcula latência e perda (D13) |
+| 10 | `analyze_network` | ~0 s | Casa os pacotes entre PCAPs; calcula latência e perda (D13) e as tabelas por janela e por distância (D16) |
 | 11 | `write_outputs` | ~0 s | Grava `summary.json`, CSVs |
 | 12 | `cleanup` | 5,1 s | Desmonta a rede |
 
@@ -242,9 +270,13 @@ nodes:
 capture:
   filter: ""                       # filtro tcpdump opcional; vazio = tudo (D12)
 
-binaries:
-  sender: bin/sender
-  receiver: bin/receiver
+analysis:                          # opcional (semana 5, D16)
+  window_seconds: 1                # tamanho da janela de tempo
+  distance_bin_meters: 10          # tamanho da faixa de distância
+
+commands:                          # opcional (semana 6, D18); sem ele, os binários de exemplo
+  sender:   "/opt/protocol/bin/sender --destination {destination} --port {port}"
+  receiver: "/opt/protocol/bin/receiver --address {address} --port {port}"
 ```
 
 Regras importantes:
@@ -276,6 +308,15 @@ nomes sempre iguais, para comparar execuções e processar por script.
 | `routes.csv` | Tabela do BATMAN de cada nó a cada 1 s | Semana 4 (D15) |
 | `signal.csv` | Sinal, taxa, falhas do Wi-Fi por vizinho a cada 1 s | Semana 4 (D15) |
 | `trajectory-<nó>.csv` | Cópia do CSV de trajetória usado (só quando a trajetória vem de CSV); o `metadata.json` guarda o sha256 | Semana 4 (D15) |
+| `windows-<origem>-<destino>.csv` | Uma linha por janela de tempo: distância, entregues/perdidos, latência, próximo salto, TQ, sinal | Semana 5 (D16) |
+| `distance-<origem>-<destino>.csv` | Uma linha por faixa de distância, com os próximos saltos usados | Semana 5 (D16) |
+| `out-<nó>/` | Tudo o que o programa do nó gravou em `/opt/protocol/out` | Semana 6 (D18) |
+
+Com `--repeat N` (D20), cada repetição é uma pasta completa como acima, em
+`logs/<experimento>/<data-hora>-campanha/rep-NN/`, e a pasta da campanha
+ganha `statistics.json` (campanha, repetições, valores e estatística) e
+`statistics.csv` (uma linha por medida: n, média, desvio, IC 95%, mín,
+máx).
 
 Exemplo de `latency-drone1-gcs.csv`:
 
@@ -295,10 +336,12 @@ time,t,node,destination,best,next_hop,tq,last_seen_s,interface
 
 **Status da execução** (`summary.json`):
 - `success`: programas rodaram e encerraram como esperado, captura válida e
-  pelo menos um pacote UDP na porta `protocol.port` visto no PCAP do sender;
-- `inconclusive`: rodou, mas nenhum pacote UDP na porta `protocol.port`
-  apareceu no PCAP do sender (critério antigo, da semana 1; ver
-  limitações);
+  pelo menos um pacote IPv4 do sender para um receiver (qualquer protocolo
+  ou porta) visto no PCAP do sender;
+- `inconclusive`: rodou, mas nenhum pacote IPv4 do sender para um receiver
+  apareceu no PCAP do sender. (Até a semana 5 o critério era "UDP na porta
+  `protocol.port`", e um teste com `ping` saía `inconclusive` mesmo
+  funcionando; mudou na D18.)
 - `failed`: programa falhou ou captura inválida.
 
 Se a execução é interrompida antes do protocolo (ex.: `network not ready`,
@@ -365,10 +408,10 @@ Cuidados descobertos na prática:
 O casamento não depende do protocolo: o ID é posto pelo kernel em qualquer
 pacote IP. Foi feito para analisar UDP (inclusive CoAP, usado pelo
 PQ-EDHOC), TCP e ICMP, **nos dois sentidos** (importante para protocolos de
-diálogo, como um handshake). O testbed nunca lê o conteúdo. Até agora, o
-REAL confirmou só UDP num sentido (os binários de exemplo); os dois
-sentidos e o ICMP estão cobertos só por teste automático, e o TCP ainda não
-foi testado.
+diálogo, como um handshake). O testbed nunca lê o conteúdo. Confirmado no
+REAL: UDP num sentido (binários de exemplo), ICMP nos dois sentidos (`ping`,
+23/11) e UDP nos dois sentidos (exemplo echo, 23/11). O TCP ainda não foi
+testado.
 
 A leitura dos PCAPs é feita em Python puro (`scripts/testbed/pcap.py`), sem
 dependências novas. Para **visualizar** o tráfego, o usuário pode usar
@@ -408,13 +451,42 @@ casa qualquer pacote **IPv4** pelo ID do IP, nos dois sentidos.
 | TESLA | UDP broadcast/multicast | Modo broadcast; resultado por receiver |
 | Protocolos sobre TCP (ex.: TLS) | TCP | Analisados por pacote IP (um reenvio do TCP é outro pacote) |
 
-O que ainda é específico de UDP: o critério do status (ver seção 6), o
-`metrics.csv` antigo e os binários de exemplo. Cuidado com IPv6: é capturado,
-mas não entra na análise (algumas bibliotecas CoAP usam IPv6 por padrão; o
-testbed entrega endereços IPv4 ao programa). Confirmado no real até agora:
-só UDP.
+O que ainda é específico de UDP: o `metrics.csv` antigo e os binários de
+exemplo. Cuidado com IPv6: é capturado, mas não entra na análise nem no
+status (algumas bibliotecas CoAP usam IPv6 por padrão; o testbed entrega
+endereços IPv4 ao programa). Confirmado no real: UDP e ICMP.
 
-### 7.6 Tempos e metadados
+### 7.6 Latência e perda por janela de tempo e por distância (semana 5)
+
+No fim de cada execução, o testbed junta `latency-*.csv`, `positions.csv`,
+`routes.csv` e `signal.csv` em duas tabelas por sentido (D16):
+
+- **`windows-<origem>-<destino>.csv`:** uma linha por janela de tempo
+  (padrão 1 s), do início ao fim do sender. Cada pacote entra na janela do
+  seu **envio** (um pacote perdido não tem chegada). Colunas: distância
+  entre origem e destino no meio da janela, enviados, entregues, perdidos,
+  maior rajada, latência mín/mediana/média/máx, jitter, próximo salto e TQ
+  da rota, sinal e taxa do Wi-Fi. Janela sem pacotes fica com `sent = 0` e
+  latência vazia: "nada enviado" não é "tudo perdido".
+- **`distance-<origem>-<destino>.csv`:** uma linha por faixa de distância
+  (padrão 10 m), com a distância de cada pacote no instante do envio. Se o
+  nó passa duas vezes pela mesma distância (vai e volta), a faixa junta as
+  duas passagens; `t_first`/`t_last` mostram isso.
+
+Cuidados:
+- a distância é em linha reta entre origem e destino, não o comprimento do
+  caminho; em multi-hop, a coluna de rota diz por onde o pacote foi;
+- a rota é lida a cada 1 s: uma troca entre duas leituras aparece na janela
+  da leitura seguinte. Se a rota mudou dentro da janela, aparecem as duas
+  (ex.: `gcs|drone2`);
+- em broadcast, a coluna de rota é só informativa: o BATMAN inunda a malha
+  em vez de seguir uma rota.
+
+No terminal sai uma linha por sentido, por exemplo
+`drone1->gcs: first loss at t=14.8s, at 84 m`.
+
+### 7.7 Tempos e metadados
+
 
 - **Tempos (D10):** durações com relógio monotônico (imune a ajustes de
   relógio); instantes em segundos Unix, na mesma base dos PCAPs.
@@ -423,7 +495,7 @@ só UDP.
   atualizado?).
 - **Aleatoriedade:** o wmediumd sorteia o *fading* e a semente não pode ser
   fixada. Mesmo config = mesmo cenário, não os mesmos resultados. Por isso o
-  plano prevê repetições com estatística.
+  testbed oferece repetições com estatística (`--repeat N`, D20).
 
 ---
 
@@ -452,8 +524,31 @@ Com `positions.csv` e `latency-*.csv`, é possível dizer: "o pacote X se
 perdeu quando o drone estava a 84 m". Quando a trajetória vem de um CSV, uma
 cópia dele fica na pasta da execução (`trajectory-<nó>.csv`) e sua
 impressão digital (sha256) vai para o `metadata.json`, para que o resultado
-continue reproduzível mesmo que o arquivo original seja editado. Hoje esse cruzamento é feito à mão; a
-semana 5 o automatiza.
+continue reproduzível mesmo que o arquivo original seja editado. Desde a
+semana 5, esse cruzamento sai pronto nas tabelas `windows-` e `distance-`
+(seção 7.6).
+
+**Random Waypoint (D19, 23/11).** Além da trajetória definida, um nó pode
+ter `type: random_waypoint`: o testbed sorteia, a partir de uma `seed`,
+destinos uniformes numa área 3D, velocidades (m/s, mínimo > 0) e pausas,
+e transforma isso numa trajetória comum, que começa na `position` do nó em
+t = 0. O caminho sorteado vai para `trajectory-<nó>.csv` e a seed para o
+`metadata.json`; a mesma seed gera o mesmo caminho (os números ainda
+variam pelo rádio). Confirmado no real (exp-15): o caminho foi exatamente o
+previsto, e o drone que se afastou e voltou teve a rota refeita pelo
+BATMAN (via relay, depois direta). É uma implementação própria do modelo
+clássico de Johnson e Maltz (1996), não o modelo nativo do Mininet-WiFi:
+não começa no "estado estacionário" do modelo, então execuções curtas
+ficam na fase transitória.
+
+**Por que o testbed move os nós em vez de usar a mobilidade do
+Mininet-WiFi (D17).** A mobilidade nativa (`setMobilityModel`,
+`net.mobility`) começa na montagem da rede, não no início do protocolo: os
+nós já andariam durante a espera da malha, e a posição no início do
+protocolo dependeria de quanto a espera demorou. Ela também não grava as
+posições, e os modelos aleatórios são só 2D, com passo de 0,5 s. Para o
+usuário, o esforço é o mesmo (campos no YAML). Por isso o Random Waypoint
+foi implementado pelo próprio testbed (D19).
 
 ---
 
@@ -515,7 +610,7 @@ broadcast reais em `success`.
 - **PCAP por participante (D12)**, capturando tudo, com filtro opcional.
   Primeira latência medida à mão: 1,73 ms.
 
-### Semana 3: latência (08–09/11) — concluída, ainda sem PR
+### Semana 3: latência (08–09/11) — concluída, na `main` (PR #22)
 
 - Discussão longa sobre como casar pacotes (D13): hash × ordem × contagem ×
   ID do IP. Escolhido o ID do IP.
@@ -530,7 +625,7 @@ broadcast reais em `success`.
 - Execuções reais de 20 m a 70 m: latência e entrega confirmadas em unicast
   e broadcast; **nenhuma perda** com nós parados.
 
-### Semana 4: mobilidade (09/11) — concluída, ainda sem PR
+### Semana 4: mobilidade (09/11) — concluída, na `main` (PR #22)
 
 - Trajetórias no config, movimento durante a execução, fim por duração,
   sender de exemplo contínuo (D15).
@@ -542,6 +637,32 @@ broadcast reais em `success`.
   41,7% para 11,9%.
 - Estouro de tempo com `end: sender` confirmado como falha "sender timed
   out".
+
+### Semana 5: latência por janela × posições (23/11) — concluída, ainda sem PR
+
+- Tabelas `windows-` e `distance-` geradas pelo testbed (D16), conferidas
+  contra as tabelas feitas à mão em 09/11.
+- Execução com `ping` e relay: **análise nos dois sentidos confirmada no
+  real** e cópia do CSV de trajetória confirmada.
+- Broadcast e unicast no mesmo cenário com relay (seção 11.6).
+- Explicação sobre a mobilidade nativa do Mininet-WiFi (D17).
+
+### Semana 6: contrato e documentação (23/11) — concluída, ainda sem PR
+
+- Comando livre com marcadores, pastas de dados e de saída, variáveis de
+  ambiente, status por qualquer tráfego IPv4 do sender (D18).
+- Exemplo `examples/echo` com imagem própria, confirmado no real; config
+  padrão sem `commands` continua igual.
+- Guia [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md); README e
+  `BIN_INTERFACE.md` atualizados.
+- Repetições com média, desvio e IC 95% (`--repeat N`, D20), confirmadas no
+  real com 5 repetições do config padrão.
+
+### Extras de 23/11: Random Waypoint e repetições
+
+- Random Waypoint próprio (D19), confirmado no real (seção 11.8).
+- `--repeat N` com média, desvio e IC 95% (D20), confirmado no real
+  (seção 11.9).
 
 ---
 
@@ -610,7 +731,75 @@ Config padrão com `end: sender` e limite de 5 s (o sender de exemplo nunca
 termina sozinho): status `failed`, falha "sender timed out", sender e
 receiver `ended_by: testbed`. A análise rodou assim mesmo (100/100).
 
-### 11.5 Hipóteses em aberto
+### 11.5 Dois sentidos com `ping` (23/11)
+
+Mesmo cenário da 11.3 (relay a 75 m), com o sender trocado por `ping` a
+cada 50 ms. Pedidos (drone1 → gcs) 627/689; respostas (gcs → drone1)
+557/627: o gcs respondeu exatamente os 627 pedidos que recebeu. A
+conferência independente, casando pelo número de sequência do ICMP, deu os
+mesmos números. A rota do drone1 trocou para o relay a ~122 m; a do gcs
+para o drone1 **oscilou** (relay, direta de novo, relay), e nessas janelas
+as respostas perderam mais que os pedidos. A troca de rota não é
+simétrica: cada nó decide a sua.
+
+### 11.6 Broadcast × unicast no mesmo cenário (23/11)
+
+3 nós: drone1 vai de 20 a 150 m em 30 s; gcs parado em 0 m; drone2 parado
+em 75 m. Janela de 2 s, faixas de 5 m.
+
+| | Broadcast (receivers gcs e drone2) | Unicast (drone1 → gcs; drone2 só relay) |
+|---|---|---|
+| Entregues ao gcs | **697/697** | **627/697** |
+| De 85 a 120 m | Sem perda; mediana de ~0,93 para ~1,83 ms a ~111 m (dois saltos) | Perda crescente e ~100 ms, ainda pelo enlace direto |
+| Depois de ~120 m | ~1,83 ms pelo relay | Rota via drone2, ~100% e 1–3,5 ms |
+
+Leitura: em broadcast o BATMAN inunda a malha, e o drone2 repassa ao gcs
+sem precisar trocar de rota. Em unicast o pacote só vai pelo relay quando
+o BATMAN troca a rota; a perda está toda no trecho antes da troca. Em
+broadcast com um nó no meio, "entregue" não significa "alcance direto": é
+a latência por janela que mostra o caminho.
+
+### 11.7 Exemplo de integração `examples/echo` (23/11)
+
+Programas de pergunta e resposta instalados numa imagem própria e chamados
+pelo bloco `commands`. `success`, 50/50 nos dois sentidos; o programa
+registrou no próprio log `role=sender ... cwd=/opt/protocol/out` e leu a
+mensagem de `protocol-data/drone1/`. O sender terminou sozinho (`ended_by:
+self`, código 0). Observação em aberto: a pergunta levou ~1,66 ms e a
+resposta ~0,17 ms, com a mesma taxa do Wi-Fi nos dois sentidos (sem
+explicação confirmada).
+
+### 11.8 Random Waypoint (23/11, exp-15)
+
+drone1 com `random_waypoint` (área 120 × 120 m, altitude 10–30 m,
+velocidade 3–8 m/s, pausa 0–2 s, seed 20, 60 s); gcs no solo; drone2
+parado a 60 m. O caminho gravado foi **idêntico** ao sorteado antes, fora
+do host, com a mesma seed; o drone o seguiu com desvio máximo de 0,004 m.
+868/1194 entregues; primeira perda a 84 m (de novo a mesma distância).
+
+| Fase | Entregues | Mediana |
+|---|---|---|
+| 0–9 s, perto, rota direta | 178/179 | 0,26 ms |
+| 9–15 s, afastando (84 → 130 m) | 67/119 | 52,8 ms |
+| 15–18 s, rota via drone2 | 51/60 | 3,9 ms |
+| 27–36 s, longe de todos | 43/179 | 107 ms |
+| 36–42 s, voltando, via drone2 | 107/120 | 3,2 ms |
+| 42–52 s, perto, direta de novo | 196/199 | 2,4 ms |
+
+Primeiro teste com um drone que se afasta e **volta**: o BATMAN refez a
+rota sozinho (via relay a ~37 s, direta a 42 s). A entrega voltou antes do
+que a distância ao gcs sugeria, porque o relay voltou a alcançar o drone1
+primeiro.
+
+### 11.9 Repetições do config padrão (23/11, campanha de 5)
+
+`scripts/config.yml --repeat 5`: 5/5 `success`. Mediana **0,239 ±
+0,001 ms** (IC 95% 0,238–0,241), p95 0,551 ± 0,183 ms, máxima 3,39 ±
+0,16 ms, jitter 0,147 ± 0,027 ms, entrega 100%, espera da malha 9,29 ±
+1,09 s. Conferido à mão. A latência típica é muito estável; a variação
+aparece nas caudas.
+
+### 11.10 Hipóteses em aberto
 
 Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 - **Taxa do Wi-Fi:** ~0,9 ms quando o quadro sai numa taxa baixa (broadcast
@@ -633,18 +822,21 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
   metadados.
 - PCAP por participante.
 - Latência e perda de rede por sentido, por receiver e por fluxo.
-- Mobilidade por trajetória (no YAML e em CSV), fim por duração e por
-  estouro de tempo, registro de posições, rotas e sinal.
-- Multi-hop: troca de rota para um relay durante o movimento.
+- Mobilidade aleatória (Random Waypoint próprio, com seed registrada).
+- Mobilidade por trajetória (no YAML e em CSV, com cópia e sha256 do CSV),
+  fim por duração e por estouro de tempo, registro de posições, rotas e
+  sinal.
+- Multi-hop: troca de rota para um relay durante o movimento, em unicast e
+  em broadcast.
+- Análise nos dois sentidos (ICMP e UDP).
+- Tabelas por janela de tempo e por faixa de distância.
+- Contrato com comando livre e marcadores, imagem própria, pastas de dados
+  e de saída; compatibilidade com configs sem `commands`.
+- Repetições com estatística (`--repeat N`: média, desvio, IC 95%), D20.
 
 ### Ainda não exercitado no real
 
-- Protocolo real (EDHOC, PQ-EDHOC, TESLA) e tráfego TCP: os binários de
-  exemplo só usam UDP.
-- Análise nos dois sentidos (só em teste automático; os binários de exemplo
-  só enviam num sentido).
-- Cópia do CSV de trajetória na pasta da execução (implementada depois da
-  última execução com CSV; só em teste automático).
+- Protocolo real (EDHOC, PQ-EDHOC, TESLA) e tráfego TCP.
 
 ### Limitações conhecidas
 
@@ -660,25 +852,21 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 | Só nós participantes são capturados | Um relay não tem PCAP |
 | Só IPv4; PCAP clássico | IPv6 e pcapng não são lidos |
 | Precisão da espera da malha ~1,2 s | Cada tentativa de ping que falha espera 1 s |
-| Contrato de argumentos fixo | Até a semana 6, o programa precisa aceitar `--destination/--address/--port` |
-| Imagem do usuário precisa de `ping` | Usado na espera da malha; `FROM drone:latest` já tem |
-| Status `success`/`inconclusive` olha só UDP na porta do config, no sender | Um protocolo só TCP, ou em outra porta, sairia `inconclusive` mesmo com tráfego; a análise de latência (que olha tudo) não é afetada. Rever na semana 6 |
-| Validador `validate_scenario.py` | Não foi rodado no host depois das semanas 3–4; ainda exige código de saída 0 |
+| Mesmo comando para todos os receivers | Um receiver com programa diferente ainda não é possível |
+| Imagem do usuário precisa de `ping` e `/bin/sh` | Usados na espera da malha e para iniciar o programa na pasta de saída; `FROM drone:latest` já tem |
+| Rota lida a cada 1 s | Nas tabelas por janela, uma troca de rota aparece na janela da leitura seguinte |
+| Validador `validate_scenario.py` | Ajustado na semana 6 (aceita encerramento pelo testbed, compara o comando esperado), mas não rodado no host depois das semanas 3–4 |
 
 ---
 
 ## 13. Próximos passos
 
-- **Semana 5:** latência e perda por janela de tempo, cruzadas com as
-  posições (o testbed gerar sozinho a tabela da seção 11.2).
-- **Semana 6:** contrato novo com marcadores no comando (`{address}`,
-  `{destination}`, `{port}`, `{node_id}`...), pastas de dados e saída do
-  protocolo, variáveis de ambiente; exemplo completo e guia "integre seu
-  protocolo"; atualizar a documentação antiga; se der tempo, repetições
-  com média, desvio e intervalo de confiança.
+- **Integrar um protocolo real** (PQ-EDHOC) pelo
+  [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md), quando os binários estiverem
+  disponíveis; isso também confirmaria o TCP, se ele usar TCP.
 - Pendências: escolher o intervalo padrão do BATMAN para mobilidade;
-  ajustar o validador (`validate_scenario.py`) ao `ended_by`; decidir o
-  futuro do `metrics.csv` antigo.
+  investigar a diferença de latência pergunta × resposta do exemplo echo;
+  decidir o futuro do `metrics.csv` antigo.
 
 ---
 
@@ -697,6 +885,13 @@ sudo python3 scripts/run.py
 # execução com outro config, guardando a saída da tela
 sudo python3 scripts/run.py poc_mobilidade.yml 2>&1 | tee poc_mobilidade.log
 
+# exemplo completo do contrato da semana 6 (imagem própria)
+docker build -t drone-echo:latest examples/echo
+sudo python3 scripts/run.py examples/echo/config.yml
+
+# repetir o mesmo config 10 vezes, com média, desvio e IC 95% (D20)
+sudo python3 scripts/run.py meu-config.yml --repeat 10
+
 # resultados em outra pasta base
 sudo python3 scripts/run.py --output-dir /caminho/resultados
 ```
@@ -709,6 +904,7 @@ Mesh ready after 9.0s
 Mobility: moved drone1 (365 position updates)
 Routes/signal samples: 39
 drone1->gcs: 407/698 delivered, median latency 0.445 ms
+drone1->gcs: first loss at t=14.8s, at 84 m
 Experiment completed successfully.
 Total time: 62.6s
 ```
@@ -752,15 +948,18 @@ exige `sudo`.
 
 | Documento | Conteúdo |
 |---|---|
-| [`DECISOES.md`](DECISOES.md) | Todas as decisões (D1–D15) com contexto, motivo e confirmações |
+| [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md) | Como integrar o seu protocolo (contrato da semana 6) |
+| [`DECISOES.md`](DECISOES.md) | Todas as decisões (D1–D20) com contexto, motivo e confirmações |
 | [`RELATORIO_2026-11-05.md`](RELATORIO_2026-11-05.md) | Relatório das semanas 1 e 2 |
 | [`RELATORIO_2026-11-09.md`](RELATORIO_2026-11-09.md) | Relatório da semana 3 (latência) |
 | [`RELATORIO_SEMANA4_2026-11-09.md`](RELATORIO_SEMANA4_2026-11-09.md) | Relatório da semana 4 (mobilidade) |
+| [`RELATORIO_2026-11-23.md`](RELATORIO_2026-11-23.md) | Relatório das semanas 5 e 6 |
 | [`LATENCIA_REDE_X_PROGRAMA.md`](LATENCIA_REDE_X_PROGRAMA.md) | Por que medimos latência de rede |
 | [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md) | Hipóteses sobre os resultados |
-| `scripts/testbed/` | Código: `config.py`, `network.py`, `runner.py`, `metrics.py`, `pcap.py`, `latency.py`, `mobility.py`, `observer.py`, `timing.py`, `metadata.py`, `rundir.py` |
-| `poc_*.yml` (raiz) | Configs das execuções de 09/11 |
+| `scripts/testbed/` | Código: `config.py`, `network.py`, `runner.py`, `metrics.py`, `pcap.py`, `latency.py`, `windows.py`, `mobility.py`, `observer.py`, `timing.py`, `metadata.py`, `rundir.py` |
+| `examples/echo/` | Exemplo completo de integração (imagem própria + `commands`) |
+| `poc_*.yml` (raiz) | Configs das execuções de 09/11 e 23/11 |
 
-Os documentos `README.md`, `RELATORIO_TECNICO.md`, `CONTEXTO_AGENTE.md` e
-`bin/BIN_INTERFACE.md` estão parcialmente desatualizados e serão revistos na
-semana 6. Onde divergirem, este guia e o `DECISOES.md` valem.
+O `README.md` foi atualizado em 23/11. O `CONTEXTO_AGENTE.md` é histórico
+(tem um aviso no topo) e o `RELATORIO_TECNICO.md` está desatualizado. Onde
+divergirem, este guia e o `DECISOES.md` valem.

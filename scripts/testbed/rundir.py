@@ -25,13 +25,22 @@ PCAP_NAME = "capture-{node}.pcap"
 # Copy of each trajectory CSV used (nodes[].mobility.waypoints_csv), so the
 # run stays reproducible even if the original CSV is edited later (D15).
 TRAJECTORY_NAME = "trajectory-{node}.csv"
+# Output directory of each participant's program: out-<node id>/ (D18).
+NODE_OUTPUT_NAME = "out-{node}"
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
+
+
+def write_waypoints(path: str | Path, waypoints: list[list[float]]) -> None:
+    """Same format as nodes[].mobility.waypoints_csv: t,x,y,z (readable back as a trajectory)."""
+    lines = ["t,x,y,z"] + [",".join(f"{value:.6f}" for value in point) for point in waypoints]
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def prepare_run_directory(
     config: dict[str, Any],
     base_dir: str | Path = DEFAULT_OUTPUT_DIR,
     now: datetime | None = None,
+    run_name: str | None = None,
 ) -> dict[str, str]:
     """Create <base_dir>/<experiment.id>/<timestamp>/ and copy the config into it.
 
@@ -43,7 +52,11 @@ def prepare_run_directory(
     experiment_dir = Path(base_dir).resolve() / config["experiment"]["id"]
     run_dir = experiment_dir / stamp
     suffix = 2
-    while True:
+    if run_name is not None:
+        # A repetition of a campaign (D20): <campaign dir>/rep-NN, never reused.
+        run_dir = Path(base_dir).resolve() / run_name
+        run_dir.mkdir(parents=True, exist_ok=False)
+    while run_name is None:
         try:
             run_dir.mkdir(parents=True, exist_ok=False)
             break
@@ -57,14 +70,26 @@ def prepare_run_directory(
     output["pcaps"] = {
         node: str(run_dir / PCAP_NAME.format(node=node)) for node in [protocol["sender"], *protocol["receivers"]]
     }
+    # The program's own output directory (/opt/protocol/out), one per
+    # participant, written directly during the run (D18).
+    output["node_outputs"] = {}
+    for node in [protocol["sender"], *protocol["receivers"]]:
+        node_dir = run_dir / NODE_OUTPUT_NAME.format(node=node)
+        node_dir.mkdir(exist_ok=True)
+        output["node_outputs"][node] = str(node_dir)
     config_path = config.get("config_path")
     if config_path:
         shutil.copyfile(config_path, output["config"])
     output["trajectories"] = {}
     for name, node in (config.get("nodes") or {}).items():
-        source = (node.get("mobility") or {}).get("source")
-        if source and source != "config":
-            copy = run_dir / TRAJECTORY_NAME.format(node=name)
+        mobility = node.get("mobility") or {}
+        source = mobility.get("source")
+        copy = run_dir / TRAJECTORY_NAME.format(node=name)
+        if source == "random_waypoint":
+            # The drawn path, so it can be seen, cited and compared (D19).
+            write_waypoints(copy, mobility["waypoints"])
+            output["trajectories"][name] = str(copy)
+        elif source and source != "config":
             shutil.copyfile(source, copy)
             output["trajectories"][name] = str(copy)
     config["output"] = output

@@ -61,6 +61,14 @@ nodes:
     #     - [0, 20, 0, 0]
     #     - [30, 150, 0, 0]
     #   # or: waypoints_csv: path/to/drone1.csv  (lines t,x,y,z)
+    # or a random path (Random Waypoint, D19), drawn from the seed:
+    # mobility:
+    #   type: random_waypoint
+    #   area: [[0, 0, 0], [150, 150, 0]]   # min and max corner [x, y, z]; position inside
+    #   speed: [2, 6]                      # m/s, drawn per leg; minimum > 0
+    #   pause: [0, 2]                      # s, drawn per destination (optional)
+    #   seed: 20                           # optional; drawn and recorded if absent
+    #   duration: 60                       # s of path; the node then stays put
     image: drone:latest
     memory: 512m
     txpower: 10

@@ -3,14 +3,26 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import shlex
+import string
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from . import random_waypoint
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "config.yml"
 CONTAINER_BIN_DIR = "/opt/protocol/bin"
+# Contract of week 6 (D18): optional per-node data (read-only) and the
+# program's own output directory (its working directory), inside the container.
+CONTAINER_DATA_DIR = "/opt/protocol/data"
+CONTAINER_OUTPUT_DIR = "/opt/protocol/out"
+# Host directory with per-node data: <root>/protocol-data/<node id>/ (optional).
+PROTOCOL_DATA_DIR = "protocol-data"
+# Placeholders the testbed fills in commands[].
+COMMAND_PLACEHOLDERS = {"address", "destination", "port", "node_id", "mode", "data_dir", "output_dir"}
 _NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 PROTOCOL_UNICAST = "unicast"
 PROTOCOL_BROADCAST = "broadcast"
@@ -18,7 +30,7 @@ SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 
 # Every field the testbed understands, per section. Anything else is rejected,
 # so a typo (e.g. "postion") or a removed field never runs silently ignored.
-_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "capture"}
+_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "commands", "capture", "analysis"}
 _EXPERIMENT_FIELDS = {
     "id", "duration_seconds", "receiver_startup_seconds", "shutdown_timeout_seconds",
     "network_ready_timeout_seconds", "drain_seconds", "end",
@@ -31,13 +43,18 @@ _WIRELESS_FIELDS = {
 }
 _NODE_FIELDS = {"id", "container_name", "ip", "position", "image", "memory", "txpower", "mobility"}
 _MOBILITY_FIELDS = {"type", "waypoints", "waypoints_csv"}
+# Random Waypoint generated as a trajectory (D19).
+_RANDOM_WAYPOINT_FIELDS = {"type", "area", "speed", "pause", "seed", "duration"}
 # How the experiment ends (D15): when the sender exits on its own, or when the
 # testbed stops it after experiment.duration_seconds (normal, not a failure).
 END_SENDER = "sender"
 END_DURATION = "duration"
 SUPPORTED_END_MODES = {END_SENDER, END_DURATION}
 _BINARIES_FIELDS = {"sender", "receiver"}
+_COMMANDS_FIELDS = {"sender", "receiver"}
 _CAPTURE_FIELDS = {"filter"}
+# Latency/loss per time window and distance band (D16).
+_ANALYSIS_FIELDS = {"window_seconds", "distance_bin_meters"}
 
 
 class ConfigError(ValueError):
@@ -144,19 +161,91 @@ def _read_waypoints_csv(csv_path: Path, path: str) -> list[list[float]]:
     return waypoints
 
 
-def _mobility(root: Path, value: Any, position: list[float], path: str) -> dict[str, Any]:
-    """Normalize nodes[].mobility (D15). No mobility = static at position."""
+def _position(value: Any, path: str) -> list[float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ConfigError(f"{path} must be [x, y, z]")
+    return [float(_require_number(item, path)) for item in value]
+
+
+def _range(value: Any, path: str, minimum_exclusive: float | None = None, minimum: float | None = None) -> list[float]:
+    """[low, high] with low <= high and a lower bound on low."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ConfigError(f"{path} must be [minimum, maximum]")
+    low, high = (float(_require_number(item, path)) for item in value)
+    if low > high:
+        raise ConfigError(f"{path}: minimum {low} is greater than maximum {high}")
+    if minimum_exclusive is not None and low <= minimum_exclusive:
+        raise ConfigError(f"{path}: minimum must be greater than {minimum_exclusive:g}")
+    if minimum is not None and low < minimum:
+        raise ConfigError(f"{path}: minimum must be at least {minimum:g}")
+    return [low, high]
+
+
+def _random_waypoint(
+    mobility: dict[str, Any], position: list[float], path: str, seed_override: int | None = None
+) -> dict[str, Any]:
+    """Validate the Random Waypoint parameters and draw the path (D19)."""
+    _reject_unknown_fields(mobility, _RANDOM_WAYPOINT_FIELDS, path)
+    for required in ("area", "speed", "duration"):
+        if required not in mobility:
+            raise ConfigError(f"{path}.{required} is required for type: random_waypoint")
+    area = mobility["area"]
+    if not isinstance(area, (list, tuple)) or len(area) != 2:
+        raise ConfigError(f"{path}.area must be [[x_min, y_min, z_min], [x_max, y_max, z_max]]")
+    area_min = _position(area[0], f"{path}.area[0]")
+    area_max = _position(area[1], f"{path}.area[1]")
+    for axis, low, high in zip("xyz", area_min, area_max):
+        if low > high:
+            raise ConfigError(f"{path}.area: {axis} minimum {low} is greater than maximum {high}")
+    if area_max[0] <= area_min[0] or area_max[1] <= area_min[1]:
+        raise ConfigError(f"{path}.area must have a positive size in x and in y")
+    if not all(low <= value <= high for value, low, high in zip(position, area_min, area_max)):
+        raise ConfigError(f"{path}: position {position} must be inside the area {area_min} .. {area_max}")
+    # speed_min > 0: with 0 the mean speed decays over time (Yoon, Liu and Noble, 2003).
+    speed = _range(mobility["speed"], f"{path}.speed", minimum_exclusive=0)
+    pause = _range(mobility.get("pause", [0, 0]), f"{path}.pause", minimum=0)
+    duration = _positive_float(mobility["duration"], f"{path}.duration")
+    seed_given = mobility.get("seed")
+    if seed_given is not None and (isinstance(seed_given, bool) or not isinstance(seed_given, int) or seed_given < 0):
+        raise ConfigError(f"{path}.seed must be a non-negative integer")
+    if seed_override is not None:
+        # Campaigns (D20) fix the seed of every repetition.
+        seed = seed_override
+    elif seed_given is None:
+        seed = random_waypoint.new_seed()
+    else:
+        seed = seed_given
+    waypoints = random_waypoint.generate(position, area_min, area_max, speed, pause, seed, duration)
+    return {
+        "type": "random_waypoint",
+        "waypoints": waypoints,
+        "source": "random_waypoint",
+        "parameters": {
+            "area": [area_min, area_max],
+            "speed": speed,
+            "pause": pause,
+            "duration": duration,
+            "seed": seed,
+            "seed_from_config": seed_given is not None,
+        },
+    }
+
+
+def _mobility(root: Path, value: Any, position: list[float], path: str, seed: int | None = None) -> dict[str, Any]:
+    """Normalize nodes[].mobility (D15, D19). No mobility = static at position."""
     if value is None:
         return {"type": "static"}
     mobility = _require_mapping(value, path)
-    _reject_unknown_fields(mobility, _MOBILITY_FIELDS, path)
     kind = _require_string(mobility.get("type", "static"), f"{path}.type")
+    if kind == "random_waypoint":
+        return _random_waypoint(mobility, position, path, seed)
+    _reject_unknown_fields(mobility, _MOBILITY_FIELDS, path)
     if kind == "static":
         if "waypoints" in mobility or "waypoints_csv" in mobility:
             raise ConfigError(f"{path}: waypoints are only allowed with type: trajectory")
         return {"type": "static"}
     if kind != "trajectory":
-        raise ConfigError(f"{path}.type must be 'static' or 'trajectory'")
+        raise ConfigError(f"{path}.type must be 'static', 'trajectory' or 'random_waypoint'")
     has_list = "waypoints" in mobility
     has_csv = "waypoints_csv" in mobility
     if has_list == has_csv:
@@ -186,11 +275,47 @@ def _mobility(root: Path, value: Any, position: list[float], path: str) -> dict[
     return {"type": "trajectory", "waypoints": waypoints, "source": source}
 
 
+def split_command(template: str) -> list[str]:
+    """Split a command like a shell would (quotes), without running a shell."""
+    return shlex.split(template)
+
+
+def _command(value: Any, path: str) -> str:
+    """Validate a command template: non-empty, splittable, known placeholders only."""
+    template = _require_string(value, path)
+    try:
+        tokens = split_command(template)
+    except ValueError as exc:
+        raise ConfigError(f"{path}: cannot split command: {exc}") from None
+    if not tokens:
+        raise ConfigError(f"{path}: command is empty")
+    for token in tokens:
+        try:
+            fields = [field for _, field, _, _ in string.Formatter().parse(token) if field is not None]
+        except ValueError as exc:
+            raise ConfigError(f"{path}: invalid placeholder in {token!r}: {exc} (use {{{{ and }}}} for literal braces)") from None
+        for field in fields:
+            if field not in COMMAND_PLACEHOLDERS:
+                known = ", ".join("{" + name + "}" for name in sorted(COMMAND_PLACEHOLDERS))
+                raise ConfigError(f"{path}: unknown placeholder {{{field}}}; known: {known}")
+    return template
+
+
+def expand_command(template: str, values: dict[str, Any]) -> list[str]:
+    """Command as argv: split first, then fill placeholders in each argument."""
+    return [token.format(**values) for token in split_command(template)]
+
+
 def _plain_ip(interface: str) -> str:
     return str(ipaddress.ip_interface(interface).ip)
 
 
-def load_config(path: str | Path | None = None, root: str | Path | None = None) -> dict[str, Any]:
+def load_config(
+    path: str | Path | None = None,
+    root: str | Path | None = None,
+    seeds: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """Load and validate the config. seeds: Random Waypoint seed per node id (campaigns, D20)."""
     project_root = Path(root).resolve() if root is not None else PROJECT_ROOT
     config_path = Path(path).resolve() if path is not None else CONFIG_PATH
 
@@ -204,10 +329,12 @@ def load_config(path: str | Path | None = None, root: str | Path | None = None) 
         raise ConfigError(f"invalid YAML in {config_path}: {exc}") from exc
 
     data = _require_mapping(raw, "config")
-    return normalize_config(data, project_root, config_path)
+    return normalize_config(data, project_root, config_path, seeds)
 
 
-def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None = None) -> dict[str, Any]:
+def normalize_config(
+    data: dict[str, Any], root: Path, config_path: Path | None = None, seeds: dict[str, int] | None = None
+) -> dict[str, Any]:
     experiment = _require_mapping(data.get("experiment", {}), "experiment")
     protocol = _require_mapping(data.get("protocol", {}), "protocol")
     wireless = _require_mapping(data.get("wireless", {}), "wireless")
@@ -222,6 +349,10 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         raise ConfigError("capture.filter must be a tcpdump (BPF) filter string")
     # Empty means "capture everything"; syntax is checked by tcpdump at start.
     capture_filter = capture_filter.strip() if capture_filter else None
+    analysis = _require_mapping(data.get("analysis") or {}, "analysis")
+    _reject_unknown_fields(analysis, _ANALYSIS_FIELDS, "analysis")
+    window_seconds = _positive_float(analysis.get("window_seconds", 1.0), "analysis.window_seconds")
+    distance_bin_meters = _positive_float(analysis.get("distance_bin_meters", 10.0), "analysis.distance_bin_meters")
 
     experiment_id = _require_string(experiment.get("id"), "experiment.id")
     if not _NODE_ID.match(experiment_id):
@@ -387,7 +518,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "image": _require_string(node.get("image", "drone:latest"), f"nodes[{index}].image"),
             "memory": _require_string(node.get("memory", "512m"), f"nodes[{index}].memory"),
             "txpower": float(_require_number(node.get("txpower", 10), f"nodes[{index}].txpower")),
-            "mobility": _mobility(root, node.get("mobility"), position, f"nodes[{index}].mobility"),
+            "mobility": _mobility(root, node.get("mobility"), position, f"nodes[{index}].mobility", (seeds or {}).get(name)),
         }
 
     if sender not in normalized_nodes:
@@ -403,6 +534,17 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "receiver": _executable(root, binaries.get("receiver", "bin/receiver"), "binaries.receiver"),
         "container_directory": CONTAINER_BIN_DIR,
         "host_directory": str((root / "bin").resolve()),
+    }
+
+    commands = _require_mapping(data.get("commands") or {}, "commands")
+    _reject_unknown_fields(commands, _COMMANDS_FIELDS, "commands")
+    # Without commands, the contract of weeks 1-5 (D18 item 3).
+    default_commands = {
+        "sender": shlex.quote(normalized_binaries["sender"]["container"]) + " --destination {destination} --port {port}",
+        "receiver": shlex.quote(normalized_binaries["receiver"]["container"]) + " --address {address} --port {port}",
+    }
+    normalized_commands = {
+        role: _command(commands.get(role, default), f"commands.{role}") for role, default in default_commands.items()
     }
 
     return {
@@ -426,5 +568,8 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "wireless": normalized_wireless,
         "nodes": normalized_nodes,
         "binaries": normalized_binaries,
+        "commands": normalized_commands,
+        "protocol_data_dir": str((root / PROTOCOL_DATA_DIR).resolve()),
         "capture": {"filter": capture_filter or None},
+        "analysis": {"window_seconds": window_seconds, "distance_bin_meters": distance_bin_meters},
     }

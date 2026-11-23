@@ -1,0 +1,93 @@
+# Complete example of the week 6 contract (D18): a question-and-answer
+# protocol installed in its own image (examples/echo/Dockerfile).
+#   docker build -t drone-echo:latest examples/echo
+#   sudo python3 scripts/run.py examples/echo/config.yml
+experiment:
+  id: exp-14-exemplo-echo
+  # The client ends by itself after its requests: "sender". duration_seconds
+  # is then only a safety limit (exceeding it = "sender timed out").
+  end: sender
+  duration_seconds: 30
+  receiver_startup_seconds: 1.0
+  shutdown_timeout_seconds: 5.0
+  network_ready_timeout_seconds: 60.0
+  drain_seconds: 1.0
+
+protocol:
+  mode: unicast
+  port: 5000
+  sender: drone1
+  receivers:
+    - gcs
+
+wireless:
+  ssid: meshNet
+  mode: g
+  channel: 5
+  ht_cap: HT40+
+  noise_threshold_dbm: -91
+  fading_coefficient: 3
+  propagation_model: logDistance
+  propagation_exponent: 3.5
+  # There is no fixed range per node: reachability follows from txpower, the
+  # propagation model and noise_threshold_dbm. With these values (10 dBm,
+  # logDistance 3.5, -91 dBm) the direct link fades out around 60 m. Place the
+  # nodes at the distances you want to evaluate.
+  subnet: 192.168.123.0/24
+  broadcast_ip: 192.168.123.255
+  interface: bat0
+  # BATMAN-adv. Bridge Loop Avoidance only matters when bat0 is bridged to a
+  # LAN; enabled, it drops broadcasts (ARP included) for ~30 s after start.
+  batman_bridge_loop_avoidance: false
+  # Interval between originator messages. Lower values react faster to
+  # mobility (route changes) at the cost of more control traffic.
+  batman_orig_interval_ms: 1000
+
+nodes:
+  - id: gcs
+    container_name: gcs0
+    ip: 192.168.123.1/24
+    position: [0, 0, 0]
+    image: drone-echo:latest   # docker build -t drone-echo:latest examples/echo
+    memory: 512m
+    txpower: 10
+  - id: drone1
+    container_name: dr1
+    ip: 192.168.123.2/24
+    position: [20, 0, 0]
+    # Optional movement, t=0 = sender start (D15). Without "mobility" the node
+    # stays at "position". Example (first waypoint = position):
+    # mobility:
+    #   type: trajectory
+    #   waypoints:            # [t seconds, x, y, z], linear in between
+    #     - [0, 20, 0, 0]
+    #     - [30, 150, 0, 0]
+    #   # or: waypoints_csv: path/to/drone1.csv  (lines t,x,y,z)
+    image: drone-echo:latest   # docker build -t drone-echo:latest examples/echo
+    memory: 512m
+    txpower: 10
+  - id: drone2
+    container_name: dr2
+    ip: 192.168.123.3/24
+    position: [40, 0, 0]
+    image: drone-echo:latest   # docker build -t drone-echo:latest examples/echo
+    memory: 512m
+    txpower: 10
+
+# How the testbed starts the programs (D18). Placeholders filled per node:
+# {address} {destination} {port} {node_id} {mode} {data_dir} {output_dir}.
+# No shell: arguments are split like a shell would (quotes work).
+#   {data_dir}   = /opt/protocol/data <- protocol-data/<node id>/ (read-only)
+#   {output_dir} = /opt/protocol/out  -> logs/.../out-<node id>/ (working dir)
+commands:
+  sender: >-
+    echo_client --server {destination} --port {port} --count 50
+    --message-file {data_dir}/message.txt --log {output_dir}/client.log
+  receiver: echo_server --bind {address} --port {port} --log {output_dir}/server.log
+
+capture:
+  filter: ""
+
+
+# Results are not configured here: each run writes to
+# logs/<experiment.id>/<date-time>/ (base directory: scripts/run.py --output-dir).

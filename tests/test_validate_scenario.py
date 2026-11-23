@@ -32,6 +32,11 @@ def _config(mode="unicast", receivers=None):
             "drone2": {"address": "192.168.123.3", "container_name": "dr2", "image": "drone:latest"},
         },
         "output": {},
+        # What load_config() fills in when the config has no commands (D18).
+        "commands": {
+            "sender": "/opt/protocol/bin/sender --destination {destination} --port {port}",
+            "receiver": "/opt/protocol/bin/receiver --address {address} --port {port}",
+        },
     }
 
 
@@ -49,6 +54,7 @@ def _summary(tmp, mode="unicast", receivers=None):
         if isinstance(path, str):
             Path(path).write_bytes(b"x")
     destination = "192.168.123.255" if mode == "broadcast" else "192.168.123.1"
+    addresses = {"gcs": "192.168.123.1", "drone1": "192.168.123.2", "drone2": "192.168.123.3"}
     return {
         "mode": mode,
         "status": "success",
@@ -65,7 +71,7 @@ def _summary(tmp, mode="unicast", receivers=None):
             {
                 "node": receiver,
                 "exit_code": 0,
-                "command": ["/opt/protocol/bin/receiver", "--address", "192.168.123.1", "--port", "5101"],
+                "command": ["/opt/protocol/bin/receiver", "--address", addresses[receiver], "--port", "5101"],
                 "stdout": "anything the implementation decides to print",
             }
             for receiver in receivers
@@ -100,6 +106,29 @@ class ValidateScenarioTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             validate_scenario.select_destination(config)
+
+    def test_exit_code_only_matters_when_the_program_ended_on_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            summary["sender"].update(exit_code=-15, ended_by="testbed")
+            summary["receivers"][0].update(exit_code=143, ended_by="testbed")
+            self.assertEqual(validate_scenario.validate_summary(_config(), summary), [])
+            summary["sender"].update(exit_code=1, ended_by="self")
+            errors = validate_scenario.validate_summary(_config(), summary)
+        self.assertEqual(errors, ["sender exit_code is 1, expected 0"])
+
+    def test_custom_commands_are_checked_against_the_expanded_template(self):
+        config = _config()
+        config["commands"] = {"sender": "init coap://{destination}:{port}", "receiver": "resp --bind {address}"}
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = _summary(tmp)
+            summary["sender"]["command"] = ["init", "coap://192.168.123.1:5101"]
+            summary["receivers"][0]["command"] = ["resp", "--bind", "192.168.123.1"]
+            self.assertEqual(validate_scenario.validate_summary(config, summary), [])
+            summary["receivers"][0]["command"] = ["resp", "--bind", "192.168.123.9"]
+            errors = validate_scenario.validate_summary(config, summary)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("receiver gcs command", errors[0])
 
     def test_validate_summary_accepts_unicast_matching_the_single_configured_receiver(self):
         with tempfile.TemporaryDirectory() as tmp:

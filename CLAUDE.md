@@ -52,9 +52,17 @@ fim-a-fim; entrega/perda; mobilidade.
   latência, rotas). Não calibrar nem alterar o rádio do Mininet-WiFi. O cenário
   padrão é só exemplo e não precisa ter multi-hop. `nodes[].range` foi removido
   (aceito com aviso, ignorado) porque o wmediumd não o usa.
-- Mobilidade: tipos `static` e `trajectory` (waypoints no YAML ou CSV).
-  Plano B/talvez A: thread do testbed interpola e chama `setPosition()`.
-  Modelos aleatórios só se sobrar tempo.
+- Mobilidade: tipos `static`, `trajectory` (waypoints no YAML ou CSV) e
+  `random_waypoint` (D19: Random Waypoint próprio, sorteado com seed e
+  gerado como trajetória; não é o modelo nativo do Mininet-WiFi, ver D17).
+  Uma thread do testbed interpola e chama `setPosition()` a cada 0,1 s;
+  t=0 = início do sender.
+- Contrato do programa (D18): bloco `commands` com marcadores, sem shell;
+  imagem própria `FROM drone:latest` é o caminho recomendado (binário
+  compilado no host pode faltar biblioteca ou glibc no container).
+- Status `success`: qualquer IPv4 do sender para um receiver (D18).
+- Repetições (D20): `run.py --repeat N [--vary-seed]` → campanha com
+  média, desvio e IC 95% (t de Student).
 
 ## Regras antigas revogadas (de CONTEXTO_AGENTE.md / test_repository_contract.py)
 
@@ -131,13 +139,52 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (2026-11-09)
+## Estado atual (2026-11-23, fim do dia)
+
+- **23/11: semanas 5 e 6 concluídas, mais Random Waypoint e repetições,
+  tudo confirmado no host.** Resumo (detalhes em
+  `docs/RELATORIO_2026-11-23.md` e D16–D20):
+  - Semana 5 (D16): `testbed/windows.py` → `windows-`/`distance-<o>-<d>.csv`,
+    bloco `analysis`, linha "first loss". REAL: exp-11 (ping: dois sentidos
+    confirmados, cópia do CSV confirmada; rota não simétrica), exp-12
+    (broadcast 697/697, gcs via relay), exp-13 (unicast 627/697, troca de
+    rota a ~120 m).
+  - D17: por que não usar a mobilidade nativa do Mininet-WiFi.
+  - Semana 6 (D18): `commands` com marcadores, `TESTBED_*`,
+    `protocol-data/<nó>` (ro), `out-<nó>` (rw, cwd via `sh -c 'cd && exec'`),
+    status por tráfego IP, `validate_scenario` ajustado, `examples/echo`.
+    REAL: exp-14 (echo 50/50 nos dois sentidos, imagem `drone-echo:latest`),
+    exp-01 (config padrão sem `commands`, compatível). Guia
+    `docs/GUIA_INTEGRACAO.md`.
+  - D19: Random Waypoint próprio. REAL: exp-15 (caminho = previsto com
+    seed 20, 868/1194, rota via relay e de volta).
+  - D20: repetições. REAL: campanha de 5 do config padrão (mediana
+    0,239 ± 0,001 ms). Bug achado na 1ª tentativa (variável sombreada em
+    `run_once`), corrigido com teste.
+  - `scripts/teste.yml` (formato antigo) removido a pedido dela.
+  - TESTE AUTOMÁTICO: 267 OK.
+  - Git: tudo na branch `semana1-execucao-real`, commits locais **sem push**
+    (push/PR: a usuária faz ao encerrar o dia). `main` tem até a semana 4
+    (PR #22).
+  - **Próximo: PQ-EDHOC** (ela tem os binários; pedir `file`/`ldd` dentro
+    da `drone:latest` e o `--help`/argumentos).
+  - Documentos de estudo dela (não commitar; em `.git/info/exclude`):
+    `docs/MOBILIDADE_RANDOM_WAYPOINT.md`,
+    `docs/ESTUDO_EXPERIMENTO_RANDOM_WAYPOINT.md`, `docs/estudo/`.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
-- Semana 2 (commits de 05/11) na mesma branch `semana1-execucao-real`, após o
-  merge; falta push + novo PR. **Sempre rodar `git fetch` antes de afirmar o
-  estado do GitHub** (a cópia local de `origin/*` fica desatualizada).
+- Semana 2 mergeada (PR #21). Semanas 3 e 4 mergeadas na `main` pelo
+  **PR #22** (`9b2e50d`, 09/11 16:54, até o commit `011be49`; visto com
+  `git fetch` em 11/11). Os commits `28bb780` e `d10de17` (prompt de
+  retomada, README) estão só na branch `semana1-execucao-real` (com push).
+  **Sempre rodar `git fetch` antes de afirmar o estado do GitHub** (a cópia
+  local de `origin/*` fica desatualizada).
+- 11/11: há arquivos da usuária no índice do Git (`git add` feito por ela):
+  `docs/Plano_execucao`, `poc_*.yml`, `poc_trajetoria_drone1.csv`.
+  Ao commitar, passar só os caminhos do trabalho. (`scripts/teste.yml`,
+  formato antigo e inválido, foi removido a pedido dela em 23/11: suíte
+  243/243 OK.)
 - Confirmado no host: unicast e broadcast em `success`; receivers encerram com
   "Receiver finished"; "Mesh ready after 10.1s".
 - `scripts/config.yml` versionado: unicast, drone1→gcs, posições 0/20/40,
@@ -196,18 +243,20 @@ fim-a-fim; entrega/perda; mobilidade.
 ## Pendências fora do plano semanal
 
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
-- Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de
-  `ping` (usado pela espera da malha; `FROM drone:latest` já tem).
+- **PQ-EDHOC**: integrar pelos binários dela (imagem própria + `commands`).
+- **No fim do projeto:** acrescentar ao README a diferença Random Waypoint
+  nativo × testbed (resumo de `docs/MOBILIDADE_RANDOM_WAYPOINT.md`, que é
+  estudo dela e não é commitado).
+- Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
 - Em aberto (D8): encurtar `ping -W` para medir a espera da malha em décimos.
-- `validate_scenario.py` ainda exige `exit_code == 0` dos receivers; pela
-  decisão de design, encerramento pelo testbed é normal com qualquer código
-  (registrar `ended_by`). Ajustar junto com a semana 6.
-- `status` success/inconclusive ainda depende de UDP em `protocol.port` no
-  PCAP do sender (critério da semana 1): protocolo só TCP ou em outra porta
-  sairia `inconclusive`. Rever na semana 6. `validate_scenario.py` não rodado
-  no host desde a semana 3.
-- README, `bin/BIN_INTERFACE.md` e `docs/CONTEXTO_AGENTE.md` ainda descrevem o
-  comportamento antigo em pontos (processos, BLA, fases novas).
+- Observação em aberto (D18): no echo, pergunta ~1,66 ms × resposta
+  ~0,17 ms com a mesma taxa do Wi-Fi.
+- `validate_scenario.py` foi ajustado na semana 6 (aceita `ended_by:
+  testbed`, compara o comando esperado), mas não foi rodado no host desde a
+  semana 3.
+- Ainda não real: TCP e protocolo real.
+- `RELATORIO_TECNICO.md` e `CONTEXTO_AGENTE.md` são históricos (aviso no
+  topo); a descrição atual está no `TESTBED_GUIA_COMPLETO.md`.
 
 ## Plano (marcar ao concluir; cada fase fecha com execução real confirmada)
 
@@ -238,25 +287,35 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] Encerrar por duração ou por fim do sender (`experiment.end`; real: duration)
 - [x] Log de posições e log de `batctl o` ao longo do tempo (saltos por instante)
       + `signal.csv` (`iw station dump`)
-- [ ] Latência por janela de tempo cruzada com posições
+- [x] Latência por janela de tempo cruzada com posições (D16; real 23/11:
+      `windows-`/`distance-*.csv`, dois sentidos com ping, cópia do CSV)
 
 ### Semana 6 — contrato e documentação
-- [ ] Comando com marcadores, `data`/`out`, variáveis de ambiente
-- [ ] Exemplo completo + guia "integre seu protocolo"
-- [ ] Atualizar README, BIN_INTERFACE.md, CONTEXTO_AGENTE.md, testes de contrato
-- [ ] (se der tempo) repetições com média, desvio e IC 95%
+- [x] Comando com marcadores, `data`/`out`, variáveis de ambiente (D18;
+      real 23/11 com `examples/echo`)
+- [x] Exemplo completo + guia "integre seu protocolo" (`examples/echo`,
+      `docs/GUIA_INTEGRACAO.md`)
+- [x] Atualizar README, BIN_INTERFACE.md, CONTEXTO_AGENTE.md (aviso de
+      histórico), testes de contrato
+- [x] (se der tempo) repetições com média, desvio e IC 95% (D20; `--repeat N`,
+      real 23/11: 5/5, conferido à mão)
+
+### Extras (23/11)
+- [x] Mobilidade aleatória: Random Waypoint próprio (D19; real exp-15)
 
 ### Fora de escopo
-Script de instalação, Makefile, CI, campanhas, gráficos automáticos, eventos do
-protocolo (MET-07), CPU/memória, netem, topologias geradas, README em inglês,
-CITATION, SUMO, animação, modelos de mobilidade aleatórios.
+Script de instalação, Makefile, CI, campanhas de varredura de parâmetros
+(repetições do mesmo config foram feitas: D20), gráficos automáticos, eventos
+do protocolo (MET-07), CPU/memória, netem, topologias geradas, README em
+inglês, CITATION, SUMO, animação, outros modelos de mobilidade aleatória
+além do Random Waypoint (D19).
 
 ## Referências
 
-- `docs/PROMPT_RETOMADA.md` (atualizado 09/11): prompt para iniciar uma sessão nova (o que ler,
+- `docs/PROMPT_RETOMADA.md` (atualizado 23/11, fim do dia): prompt para iniciar uma sessão nova (o que ler,
   onde paramos, como trabalhar). Atualizar ao fim de cada dia.
 - `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
-- **`docs/TESTBED_GUIA_COMPLETO.md`**: visão completa do testbed (09/11),
+- **`docs/TESTBED_GUIA_COMPLETO.md`**: visão completa do testbed (23/11),
   escrita para colegas e orientador; atualizar quando algo grande mudar.
 
 - **`docs/DECISOES.md`: registro de decisões com explicação completa**
