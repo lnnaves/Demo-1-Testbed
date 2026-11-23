@@ -149,8 +149,9 @@ fim-a-fim; entrega/perda; mobilidade.
   (imagem `drone-echo:latest`, comandos com marcadores, `out-<nó>/`,
   `TESTBED_*`, status por tráfego IP, `validate_scenario` ajustado).
   Suíte 243. Guia `docs/GUIA_INTEGRACAO.md`, README, BIN_INTERFACE e aviso
-  no CONTEXTO_AGENTE feitos. Falta atualizar `TESTBED_GUIA_COMPLETO.md`
-  (estado de 09/11) e o relatório/prompt do dia. Compatibilidade confirmada no host: `scripts/config.yml`
+  no CONTEXTO_AGENTE feitos. `TESTBED_GUIA_COMPLETO.md` atualizado para
+  23/11; relatório `docs/RELATORIO_2026-11-23.md`; prompt de retomada
+  atualizado. Semanas 5 e 6 só na branch, sem push. Compatibilidade confirmada no host: `scripts/config.yml`
   sem `commands` → mesmos comandos, success, 199/199.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
@@ -287,10 +288,10 @@ CITATION, SUMO, animação, modelos de mobilidade aleatórios.
 
 ## Referências
 
-- `docs/PROMPT_RETOMADA.md` (atualizado 09/11): prompt para iniciar uma sessão nova (o que ler,
+- `docs/PROMPT_RETOMADA.md` (atualizado 23/11): prompt para iniciar uma sessão nova (o que ler,
   onde paramos, como trabalhar). Atualizar ao fim de cada dia.
 - `docs/RELATORIO_<data>.md`: relatório de cada dia de trabalho.
-- **`docs/TESTBED_GUIA_COMPLETO.md`**: visão completa do testbed (09/11),
+- **`docs/TESTBED_GUIA_COMPLETO.md`**: visão completa do testbed (23/11),
   escrita para colegas e orientador; atualizar quando algo grande mudar.
 
 - **`docs/DECISOES.md`: registro de decisões com explicação completa**
