@@ -1371,3 +1371,123 @@ relay. `success`, malha 8,1 s, total 62,0 s, sem avisos.
   latência dobrou a ~111 m); unicast 627/697 (o pacote só vai pelo relay
   quando o BATMAN troca a rota; até lá, 85–120 m com perda e ~100 ms). A
   diferença é exatamente a janela antes da troca de rota.
+
+---
+
+## D18. Contrato novo: comando com marcadores, pastas de dados e saída, status por tráfego IP (23/11/2026; aprovado, implementando)
+
+**Contexto: quando surgiu.** Semana 6 do plano. O testbed monta hoje o
+comando num formato fixo (`sender --destination <IP> --port <porta>`,
+`receiver --address <IP> --port <porta>`). Um programa real (ex.:
+PQ-EDHOC) quase certamente usa outros argumentos e não rodaria sem um
+script adaptador. A base já estava decidida no CLAUDE.md (comando com
+marcadores, variáveis de ambiente, `/opt/protocol/data` e
+`/opt/protocol/out`); os detalhes abaixo foram propostos em 23/11 e
+aprovados pela usuária. Ela perguntou se os marcadores eram só para
+broadcast: não, valem nos dois modos; só `{destination}` muda de valor
+(unicast: IP do receiver; broadcast: IP de broadcast).
+
+**Decidido (23/11).**
+1. Bloco `commands` no config, uma linha por papel (`sender`,
+   `receiver`). O programa pode estar em `bin/` (montado em
+   `/opt/protocol/bin`) ou instalado na imagem do usuário. O comando roda
+   **sem shell** (dividido como na linha de comando, `shlex`), para o
+   SIGTERM chegar direto ao programa; quem precisar de shell escreve
+   `sh -c '...'` (cuidado com sinais: vai para o guia).
+2. Marcadores, nos dois modos: `{address}` (IP do próprio nó),
+   `{destination}` (unicast: IP do receiver; broadcast: IP de broadcast),
+   `{port}`, `{node_id}`, `{mode}`, `{data_dir}` (`/opt/protocol/data`),
+   `{output_dir}` (`/opt/protocol/out`). Marcador desconhecido = erro antes
+   de rodar.
+3. Compatibilidade: sem `commands`, valem os comandos de hoje (os
+   `poc_*.yml` e o `config.yml` continuam funcionando). `binaries` continua
+   aceito.
+4. Pastas: `protocol-data/<node_id>/` (host) → `/opt/protocol/data`
+   (só leitura, opcional); `/opt/protocol/out` gravado direto em
+   `logs/.../out-<node_id>/` (em vez de copiar no fim) e é a pasta de
+   trabalho do programa.
+5. Variáveis `TESTBED_NODE_ID`, `TESTBED_ROLE`, `TESTBED_MODE`,
+   `TESTBED_DATA_DIR`, `TESTBED_OUTPUT_DIR`.
+6. Status: `success` passa a exigir **qualquer pacote IP do sender para um
+   receiver** (ou broadcast) no PCAP do sender, e não mais UDP na
+   `protocol.port`. Motivo: o teste com ping (exp-11) saiu `inconclusive`
+   funcionando. Ajustar junto o `validate_scenario.py` (ainda exige código
+   de saída 0 dos receivers).
+7. Exemplo completo: par pergunta e resposta em Python, com imagem própria
+   `FROM drone:latest`, usando marcadores, um arquivo de `{data_dir}` e um
+   log em `{output_dir}`.
+8. Guia "integre seu protocolo" em `docs/` e atualização de README,
+   `BIN_INTERFACE.md`, `CONTEXTO_AGENTE.md` e testes de contrato.
+Fora por enquanto: comando diferente por receiver.
+
+**Implementado (23/11).**
+- `config.py`: bloco `commands` (`sender`, `receiver`), validado na carga:
+  dividido com `shlex` (aspas valem), marcadores conhecidos só os 7 da
+  lista, `{{`/`}}` para chave literal, comando vazio ou papel desconhecido
+  = erro. Sem `commands`, os comandos de antes (a partir de `binaries`).
+  `expand_command` divide primeiro e preenche depois, argumento por
+  argumento (um valor nunca vira dois argumentos). `protocol_data_dir` =
+  `<raiz>/protocol-data`.
+- `runner.py`: monta o comando de cada nó com os marcadores (o mesmo
+  `{destination}` para sender e receivers), passa `TESTBED_*` e, se o nó
+  tem pasta de saída, começa em `/opt/protocol/out`. Não existe mais
+  argumento fixo no runner (guardado por teste de contrato).
+- `network.py`: `container_popen(extra_env, cwd)`. A pasta de trabalho é
+  trocada com `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'`: o `exec`
+  substitui o shell pelo programa, então o SIGTERM continua chegando direto
+  ao programa (D2). Não foi usado `nsenter --wd=<dir>` porque o significado
+  dessa opção com `--root` mudou entre versões do util-linux. Exige
+  `/bin/sh` na imagem (`FROM drone:latest` tem). `node_volumes`: binários
+  (ro) + `protocol-data/<nó>/` se existir (ro) + `out-<nó>` (rw, só
+  participantes).
+- `rundir.py`: cria `out-<nó>/` para sender e receivers.
+- `metrics.py` (status): `traffic_status = observed` se a análise de rede
+  achou ao menos um pacote IP enviado pelo sender a um receiver (ou
+  broadcast). Se a análise não leu os PCAPs, vale o critério antigo (UDP na
+  porta). O `metrics.csv` antigo não mudou.
+- `validate_scenario.py`: código de saída só é exigido de quem terminou
+  sozinho (`ended_by: self`); compara o comando de cada processo com o
+  comando esperado (mesmas regras do runner) em vez de procurar
+  `--address/--port`; não exige mais UDP na porta.
+- Exemplo: `examples/echo/` (`Dockerfile` `FROM drone:latest`,
+  `echo_client.py`, `echo_server.py`, `config.yml`) e
+  `protocol-data/drone1/message.txt`. O cliente faz 50 perguntas, espera
+  cada resposta (0,5 s), grava `client.log` e termina sozinho (`end:
+  sender`); o servidor responde até o SIGTERM e grava `server.log`.
+  Testado no sandbox só pela interface de loopback: 5/5.
+- TESTE AUTOMÁTICO: 243 testes, 16 novos (`tests/test_contract.py` 10,
+  `test_metrics` 3, `test_validate_scenario` 2, contrato 1). 1 falha
+  anterior e alheia (`scripts/teste.yml`).
+- Documentação (ponto 8) fica para depois da confirmação REAL, para
+  descrever o comportamento confirmado.
+
+**Confirmação REAL — contrato novo com o exemplo echo (23/11,
+`logs/exp-14-exemplo-echo/2026-11-23_14-53-27/`, `examples/echo/config.yml`,
+`poc_semana6_echo.log`).** Imagem `drone-echo:latest` construída pela
+usuária (`FROM drone:latest`; id 95304c2e… no `metadata.json`).
+- `success` com `traffic_status: observed` pelo critério novo; total
+  31,7 s, malha 8,1 s.
+- **Comandos com marcadores:** no `summary.json`, sender
+  `echo_client --server 192.168.123.1 --port 5000 ... --message-file
+  /opt/protocol/data/message.txt --log /opt/protocol/out/client.log` e
+  receiver `echo_server --bind 192.168.123.1 ...`, exatamente a expansão
+  esperada. Programas vindos da imagem do usuário (não de `bin/`).
+- **Variáveis, pasta de trabalho, dados e saída:** `out-drone1/client.log`
+  começa com `node=drone1 role=sender ... cwd=/opt/protocol/out` e
+  termina com `answered 50/50` (logo leu `protocol-data/drone1/message.txt`);
+  `out-gcs/server.log`: `node=gcs role=receiver ... cwd=/opt/protocol/out`,
+  `answered 50`.
+- **Sinais com o `sh -c ... exec`:** o servidor recebeu o SIGTERM e gravou
+  o log no encerramento (`ended_by: testbed`, código 0). Sender terminou
+  sozinho: `ended_by: self`, código 0, 5,12 s (primeira vez com `end:
+  sender` terminando bem desde o sender contínuo da semana 4).
+- **Dois sentidos, UDP:** `drone1->gcs` 50/50 (mediana 1,657 ms) e
+  `gcs->drone1` 50/50 (mediana 0,165 ms). Conferência independente (bytes
+  dos PCAPs, casando por ID): 50/50 e 50/50, mesmas medianas.
+- **Observação em aberto (não explicada):** a pergunta levou ~10× mais que
+  a resposta. A taxa do Wi-Fi era 13 Mbit/s nos dois sentidos
+  (`signal.csv`), então a hipótese da taxa (HIPOTESES_2026-11-09) **não**
+  explica este caso. Hipótese nova, não verificada: a pergunta sai depois
+  de 0,1 s de canal ocioso e a resposta sai logo após um quadro recebido;
+  algo no acesso ao meio emulado pode custar mais após ociosidade. Precisa
+  de teste próprio se for importante.

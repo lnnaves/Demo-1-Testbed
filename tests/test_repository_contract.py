@@ -61,6 +61,13 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn('"--address"', text)
         self.assertIn('"--port"', text)
 
+    def test_runner_never_hardcodes_program_arguments(self):
+        """D18: the command comes from the config (commands); the runner only fills placeholders."""
+        text = (PROJECT_ROOT / "scripts" / "testbed" / "runner.py").read_text(encoding="utf-8")
+
+        for argument in ('"--destination"', '"--address"', '"--port"'):
+            self.assertNotIn(argument, text)
+
     def test_no_reference_protocol_semantics_is_required_by_the_platform(self):
         for path, text in _sources().items():
             with self.subTest(path=path.name):

@@ -3,6 +3,8 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import shlex
+import string
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,14 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "config.yml"
 CONTAINER_BIN_DIR = "/opt/protocol/bin"
+# Contract of week 6 (D18): optional per-node data (read-only) and the
+# program's own output directory (its working directory), inside the container.
+CONTAINER_DATA_DIR = "/opt/protocol/data"
+CONTAINER_OUTPUT_DIR = "/opt/protocol/out"
+# Host directory with per-node data: <root>/protocol-data/<node id>/ (optional).
+PROTOCOL_DATA_DIR = "protocol-data"
+# Placeholders the testbed fills in commands[].
+COMMAND_PLACEHOLDERS = {"address", "destination", "port", "node_id", "mode", "data_dir", "output_dir"}
 _NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 PROTOCOL_UNICAST = "unicast"
 PROTOCOL_BROADCAST = "broadcast"
@@ -18,7 +28,7 @@ SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 
 # Every field the testbed understands, per section. Anything else is rejected,
 # so a typo (e.g. "postion") or a removed field never runs silently ignored.
-_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "capture", "analysis"}
+_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "commands", "capture", "analysis"}
 _EXPERIMENT_FIELDS = {
     "id", "duration_seconds", "receiver_startup_seconds", "shutdown_timeout_seconds",
     "network_ready_timeout_seconds", "drain_seconds", "end",
@@ -37,6 +47,7 @@ END_SENDER = "sender"
 END_DURATION = "duration"
 SUPPORTED_END_MODES = {END_SENDER, END_DURATION}
 _BINARIES_FIELDS = {"sender", "receiver"}
+_COMMANDS_FIELDS = {"sender", "receiver"}
 _CAPTURE_FIELDS = {"filter"}
 # Latency/loss per time window and distance band (D16).
 _ANALYSIS_FIELDS = {"window_seconds", "distance_bin_meters"}
@@ -186,6 +197,37 @@ def _mobility(root: Path, value: Any, position: list[float], path: str) -> dict[
         if later[0] <= earlier[0]:
             raise ConfigError(f"{path}: waypoint times must increase (t={earlier[0]} then t={later[0]})")
     return {"type": "trajectory", "waypoints": waypoints, "source": source}
+
+
+def split_command(template: str) -> list[str]:
+    """Split a command like a shell would (quotes), without running a shell."""
+    return shlex.split(template)
+
+
+def _command(value: Any, path: str) -> str:
+    """Validate a command template: non-empty, splittable, known placeholders only."""
+    template = _require_string(value, path)
+    try:
+        tokens = split_command(template)
+    except ValueError as exc:
+        raise ConfigError(f"{path}: cannot split command: {exc}") from None
+    if not tokens:
+        raise ConfigError(f"{path}: command is empty")
+    for token in tokens:
+        try:
+            fields = [field for _, field, _, _ in string.Formatter().parse(token) if field is not None]
+        except ValueError as exc:
+            raise ConfigError(f"{path}: invalid placeholder in {token!r}: {exc} (use {{{{ and }}}} for literal braces)") from None
+        for field in fields:
+            if field not in COMMAND_PLACEHOLDERS:
+                known = ", ".join("{" + name + "}" for name in sorted(COMMAND_PLACEHOLDERS))
+                raise ConfigError(f"{path}: unknown placeholder {{{field}}}; known: {known}")
+    return template
+
+
+def expand_command(template: str, values: dict[str, Any]) -> list[str]:
+    """Command as argv: split first, then fill placeholders in each argument."""
+    return [token.format(**values) for token in split_command(template)]
 
 
 def _plain_ip(interface: str) -> str:
@@ -411,6 +453,17 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "host_directory": str((root / "bin").resolve()),
     }
 
+    commands = _require_mapping(data.get("commands") or {}, "commands")
+    _reject_unknown_fields(commands, _COMMANDS_FIELDS, "commands")
+    # Without commands, the contract of weeks 1-5 (D18 item 3).
+    default_commands = {
+        "sender": shlex.quote(normalized_binaries["sender"]["container"]) + " --destination {destination} --port {port}",
+        "receiver": shlex.quote(normalized_binaries["receiver"]["container"]) + " --address {address} --port {port}",
+    }
+    normalized_commands = {
+        role: _command(commands.get(role, default), f"commands.{role}") for role, default in default_commands.items()
+    }
+
     return {
         "root": str(root),
         "config_path": str(config_path) if config_path is not None else None,
@@ -432,6 +485,8 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "wireless": normalized_wireless,
         "nodes": normalized_nodes,
         "binaries": normalized_binaries,
+        "commands": normalized_commands,
+        "protocol_data_dir": str((root / PROTOCOL_DATA_DIR).resolve()),
         "capture": {"filter": capture_filter or None},
         "analysis": {"window_seconds": window_seconds, "distance_bin_meters": distance_bin_meters},
     }

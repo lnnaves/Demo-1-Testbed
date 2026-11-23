@@ -25,6 +25,8 @@ PCAP_NAME = "capture-{node}.pcap"
 # Copy of each trajectory CSV used (nodes[].mobility.waypoints_csv), so the
 # run stays reproducible even if the original CSV is edited later (D15).
 TRAJECTORY_NAME = "trajectory-{node}.csv"
+# Output directory of each participant's program: out-<node id>/ (D18).
+NODE_OUTPUT_NAME = "out-{node}"
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
 
@@ -57,6 +59,13 @@ def prepare_run_directory(
     output["pcaps"] = {
         node: str(run_dir / PCAP_NAME.format(node=node)) for node in [protocol["sender"], *protocol["receivers"]]
     }
+    # The program's own output directory (/opt/protocol/out), one per
+    # participant, written directly during the run (D18).
+    output["node_outputs"] = {}
+    for node in [protocol["sender"], *protocol["receivers"]]:
+        node_dir = run_dir / NODE_OUTPUT_NAME.format(node=node)
+        node_dir.mkdir(exist_ok=True)
+        output["node_outputs"][node] = str(node_dir)
     config_path = config.get("config_path")
     if config_path:
         shutil.copyfile(config_path, output["config"])

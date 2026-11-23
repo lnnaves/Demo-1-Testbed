@@ -19,7 +19,7 @@ from typing import Any
 
 from testbed.config import ConfigError, load_config
 from testbed.rundir import DEFAULT_OUTPUT_DIR, RUN_FILES
-from testbed.runner import select_destination
+from testbed.runner import build_command, select_destination
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUN_SCRIPT = PROJECT_ROOT / "scripts" / "run.py"
@@ -157,46 +157,41 @@ def validate_summary(config: dict[str, Any], summary: dict[str, Any]) -> list[st
 
     if sender.get("node") != protocol["sender"]:
         errors.append(f"sender node is {sender.get('node')!r}, expected {protocol['sender']!r}")
-    if sender.get("exit_code") != 0:
+    # Being stopped by the testbed is normal with any exit code; a program
+    # that ends on its own must exit with 0 (D15, D18).
+    if sender.get("ended_by") != "testbed" and sender.get("exit_code") != 0:
         errors.append(f"sender exit_code is {sender.get('exit_code')!r}, expected 0")
 
     if receiver_names != expected_receivers:
         errors.append(f"receivers are {receiver_names!r}, expected {expected_receivers!r}")
     for receiver in receivers:
-        if receiver.get("exit_code") != 0:
+        if receiver.get("ended_by") != "testbed" and receiver.get("exit_code") != 0:
             errors.append(f"receiver {receiver.get('node')} exit_code is {receiver.get('exit_code')!r}, expected 0")
-        receiver_command = receiver.get("command") or []
-        if "--address" not in receiver_command or "--port" not in receiver_command:
-            errors.append(
-                f"receiver {receiver.get('node')} command must contain --address and --port: {receiver_command!r}"
-            )
-
-    command = sender.get("command") or []
-    for forbidden in ("--mode", "--count"):
-        if forbidden in command:
-            errors.append(f"sender command must not contain {forbidden}")
 
     try:
-        # The expected destination comes from the same rule the runner applies,
-        # so this check never re-implements the unicast/broadcast selection.
-        expected_destination = select_destination(config)
+        # The expected commands come from the same rules the runner applies
+        # (destination selection and placeholder expansion, D18), so this
+        # check never re-implements them.
+        destination = select_destination(config)
     except ValueError as exc:
         errors.append(str(exc))
     else:
-        if expected_destination not in command:
-            errors.append(
-                f"sender command does not use the expected {protocol['mode']} destination: {expected_destination}"
-            )
+        expected = build_command(config, protocol["sender"], "sender", destination)
+        if (sender.get("command") or []) != expected:
+            errors.append(f"sender command is {sender.get('command')!r}, expected {expected!r}")
+        for receiver in receivers:
+            name = receiver.get("node")
+            if name not in config["nodes"]:
+                continue
+            expected = build_command(config, name, "receiver", destination)
+            if (receiver.get("command") or []) != expected:
+                errors.append(f"receiver {name} command is {receiver.get('command')!r}, expected {expected!r}")
 
     capture = summary.get("capture") or {}
     if not capture.get("started"):
         errors.append("capture was not started")
     if not capture.get("valid"):
         errors.append(f"capture is not valid: {capture.get('error')!r}")
-
-    metrics = summary.get("metrics") or {}
-    if not isinstance(metrics.get("packet_count"), int) or metrics.get("packet_count") <= 0:
-        errors.append(f"capture packet_count is {metrics.get('packet_count')!r}, expected a positive integer")
 
     outputs = summary.get("outputs") or {}
     for key in ("config", "csv", "summary", "timing", "metadata"):
@@ -288,11 +283,10 @@ def run_scenario(config_path: Path, output_dir: Path = DEFAULT_OUTPUT_DIR) -> tu
     if errors:
         return False, f"{mode}: FALHOU\n- " + "\n- ".join(errors)
 
-    capture_count = summary.get("metrics", {}).get("packet_count")
     return True, (
-        f"{mode}: PASSOU - a plataforma montou o cenário, executou os executáveis "
-        f"configurados, observou {capture_count} pacotes UDP na porta "
-        f"{config['protocol']['port']}, gerou PCAP/CSV/JSON e limpou o ambiente.\n"
+        f"{mode}: PASSOU - a plataforma montou o cenário, executou os comandos "
+        "configurados, observou tráfego IP do sender para os receivers, "
+        "gerou PCAP/CSV/JSON e limpou o ambiente.\n"
         "PASSOU refere-se somente à infraestrutura: nenhum protocolo foi validado semanticamente."
     )
 

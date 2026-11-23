@@ -145,7 +145,12 @@ fim-a-fim; entrega/perda; mobilidade.
   thread do testbed; modelos aleatórios = tarefa extra, usuária decide
   com o grupo. Broadcast + mobilidade também real (exp-12): 697/697 nos
   dois receivers; o gcs passou a receber via relay (mediana 0,93 → 1,83 ms).
-  Próximo: semana 6 (perguntar antes).
+  Semana 6 (D18) implementada e confirmada no host com `examples/echo`
+  (imagem `drone-echo:latest`, comandos com marcadores, `out-<nó>/`,
+  `TESTBED_*`, status por tráfego IP, `validate_scenario` ajustado).
+  Suíte 243. Falta: guia "integre seu protocolo", README, BIN_INTERFACE,
+  CONTEXTO_AGENTE; confirmar no host que `scripts/config.yml` (sem
+  `commands`) segue igual.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
@@ -266,7 +271,8 @@ fim-a-fim; entrega/perda; mobilidade.
       `windows-`/`distance-*.csv`, dois sentidos com ping, cópia do CSV)
 
 ### Semana 6 — contrato e documentação
-- [ ] Comando com marcadores, `data`/`out`, variáveis de ambiente
+- [x] Comando com marcadores, `data`/`out`, variáveis de ambiente (D18;
+      real 23/11 com `examples/echo`)
 - [ ] Exemplo completo + guia "integre seu protocolo"
 - [ ] Atualizar README, BIN_INTERFACE.md, CONTEXTO_AGENTE.md, testes de contrato
 - [ ] (se der tempo) repetições com média, desvio e IC 95%

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import time
@@ -30,6 +31,19 @@ def station_macs(config: dict[str, Any]) -> dict[str, str]:
     return {station_mac(index): name for index, name in enumerate(config["nodes"], start=1)}
 
 
+def node_volumes(config: dict[str, Any], node_id: str, bin_volume: str, node_outputs: dict[str, str]) -> list[str]:
+    """Binaries (ro), the node's data directory if present (ro), its output directory (rw) (D18)."""
+    from .config import CONTAINER_DATA_DIR, CONTAINER_OUTPUT_DIR
+
+    volumes = [bin_volume]
+    data_root = config.get("protocol_data_dir")
+    if data_root and os.path.isdir(os.path.join(data_root, node_id)):
+        volumes.append(f"{os.path.join(data_root, node_id)}:{CONTAINER_DATA_DIR}:ro")
+    if node_id in node_outputs:
+        volumes.append(f"{node_outputs[node_id]}:{CONTAINER_OUTPUT_DIR}:rw")
+    return volumes
+
+
 def build_network(config: dict[str, Any]) -> NetworkContext:
     from containernet.net import Containernet
     from containernet.node import DockerSta
@@ -51,6 +65,7 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
         )
 
         volume = f"{config['binaries']['host_directory']}:{config['binaries']['container_directory']}:ro"
+        node_outputs = (config.get("output") or {}).get("node_outputs") or {}
         nodes: dict[str, Any] = {}
         for index, node_cfg in enumerate(config["nodes"].values(), start=1):
             nodes[node_cfg["id"]] = net.addStation(
@@ -63,7 +78,7 @@ def build_network(config: dict[str, Any]) -> NetworkContext:
                 privileged=True,
                 mem_limit=node_cfg["memory"],
                 txpower=node_cfg["txpower"],
-                volumes=[volume],
+                volumes=node_volumes(config, node_cfg["id"], volume, node_outputs),
             )
 
         net.configureNodes()
@@ -193,7 +208,18 @@ def wait_for_network(config: dict[str, Any], nodes: dict[str, Any]) -> float:
     return elapsed
 
 
-def container_popen(node: Any, command: list[str], **kwargs: Any) -> subprocess.Popen:
+# Changes to the working directory, then replaces itself with the program
+# (exec), so signals still reach the program directly.
+_CD_AND_EXEC = 'cd -- "$1" && shift && exec "$@"'
+
+
+def container_popen(
+    node: Any,
+    command: list[str],
+    extra_env: dict[str, str] | None = None,
+    cwd: str | None = None,
+    **kwargs: Any,
+) -> subprocess.Popen:
     """Run command inside the node's container as a direct child process.
 
     DockerSta.popen() goes through "docker exec -t": the TTY merges stderr into
@@ -208,6 +234,9 @@ def container_popen(node: Any, command: list[str], **kwargs: Any) -> subprocess.
     env_items = (info.get("Config") or {}).get("Env") or []
     env = dict(item.split("=", 1) for item in env_items if "=" in item)
     env.setdefault("PATH", _DEFAULT_PATH)
+    env.update(extra_env or {})
+    if cwd is not None:
+        command = ["/bin/sh", "-c", _CD_AND_EXEC, "sh", cwd, *command]
     return subprocess.Popen(
         ["nsenter", "-t", str(node.pid), "-m", "-u", "-i", "-n", "--root", "--wd", "--", *command],
         env=env,
