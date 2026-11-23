@@ -131,13 +131,31 @@ fim-a-fim; entrega/perda; mobilidade.
 - Comandos no host: `sudo python3 scripts/run.py` (limpeza prévia é automática);
   diagnóstico de rede/mobilidade: `sudo python3 scripts/poc_mobility.py [--convergence-only] [--batctl "bl 0"] [--orig-interval 200]`.
 
-## Estado atual (2026-11-09)
+## Estado atual (2026-11-23)
+
+- **2026-11-23: semana 5 implementada e confirmada no host (D16).**
+  `testbed/windows.py` (janelas de tempo e faixas de distância, rota e
+  sinal), bloco `analysis` no config, linha "first loss" no terminal.
+  REAL (`poc_semana5_ping.yml`, sender temporário `bin/poc_ping_sender`,
+  ignorado pelo Git): tabelas OK, **análise nos dois sentidos confirmada**
+  (ICMP, conferência independente bate), cópia do CSV de trajetória
+  confirmada. Achado: rota gcs→drone1 oscilou enquanto drone1→gcs não.
+  Suíte 227 (1 falha alheia: `scripts/teste.yml` da usuária acusado por
+  `test_repository_contract`). D17: mobilidade nativa do Mininet-WiFi ×
+  thread do testbed; modelos aleatórios = tarefa extra, usuária decide
+  com o grupo. Próximo: semana 6 (perguntar antes).
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
-- Semana 2 mergeada (PR #21). Semanas 3 e 4: push feito em 09/11 na branch
-  `semana1-execucao-real`, sem PR (não estão na `main`). **Sempre rodar `git fetch` antes de afirmar o
-  estado do GitHub** (a cópia local de `origin/*` fica desatualizada).
+- Semana 2 mergeada (PR #21). Semanas 3 e 4 mergeadas na `main` pelo
+  **PR #22** (`9b2e50d`, 09/11 16:54, até o commit `011be49`; visto com
+  `git fetch` em 11/11). Os commits `28bb780` e `d10de17` (prompt de
+  retomada, README) estão só na branch `semana1-execucao-real` (com push).
+  **Sempre rodar `git fetch` antes de afirmar o estado do GitHub** (a cópia
+  local de `origin/*` fica desatualizada).
+- 11/11: há arquivos da usuária no índice do Git (`git add` feito por ela):
+  `docs/Plano_execucao`, `poc_*.yml`, `poc_trajetoria_drone1.csv`,
+  `scripts/teste.yml`. Ao commitar, passar só os caminhos do trabalho.
 - Confirmado no host: unicast e broadcast em `success`; receivers encerram com
   "Receiver finished"; "Mesh ready after 10.1s".
 - `scripts/config.yml` versionado: unicast, drone1→gcs, posições 0/20/40,
@@ -196,6 +214,9 @@ fim-a-fim; entrega/perda; mobilidade.
 ## Pendências fora do plano semanal
 
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
+- Modelos de mobilidade aleatórios (D17): tarefa extra; a usuária vai
+  discutir com o grupo e trazer a decisão. Caminho proposto: usar os
+  geradores do `mn_wifi/mobility.py` dentro de `testbed/mobility.py`.
 - Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de
   `ping` (usado pela espera da malha; `FROM drone:latest` já tem).
 - Em aberto (D8): encurtar `ping -W` para medir a espera da malha em décimos.
@@ -239,7 +260,8 @@ fim-a-fim; entrega/perda; mobilidade.
 - [x] Encerrar por duração ou por fim do sender (`experiment.end`; real: duration)
 - [x] Log de posições e log de `batctl o` ao longo do tempo (saltos por instante)
       + `signal.csv` (`iw station dump`)
-- [ ] Latência por janela de tempo cruzada com posições
+- [x] Latência por janela de tempo cruzada com posições (D16; real 23/11:
+      `windows-`/`distance-*.csv`, dois sentidos com ping, cópia do CSV)
 
 ### Semana 6 — contrato e documentação
 - [ ] Comando com marcadores, `data`/`out`, variáveis de ambiente

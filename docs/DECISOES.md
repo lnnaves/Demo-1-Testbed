@@ -1087,3 +1087,236 @@ Não. Resposta registrada:
 - **Cuidados:** IPv6 é capturado mas não entra na análise (bibliotecas CoAP
   às vezes usam IPv6 por padrão; o testbed entrega endereços IPv4); no TCP a
   medida é por pacote IP (reenvio = outro pacote), não por mensagem.
+
+---
+
+## D16. Latência e perda por janela de tempo × posições (11/11/2026; EM DISCUSSÃO, nada implementado)
+
+**Contexto: quando surgiu.** Semana 5 do plano ("latência por janela de
+tempo cruzada com posições"). As tabelas por distância do relatório da
+semana 4 (seção 4.1) e da D15 (exp-08 × exp-09) foram feitas à mão,
+cruzando `latency-*.csv` com `positions.csv` e `routes.csv`. A semana 5 é o
+testbed gerar isso sozinho.
+
+**Estado atual do código.** Cada execução já grava, separados:
+`latency-<origem>-<destino>.csv` (um pacote por linha, com `sent_at`),
+`positions.csv` (todos os nós a cada 0,1 s, com `t` desde o início do
+sender), `routes.csv` e `signal.csv` (a cada 1 s). Nada junta esses
+arquivos.
+
+**Protótipo (11/11; script à parte, fora do testbed, sobre os CSVs REAIS
+da exp-09, `logs/exp-09-multihop-csv/2026-11-09_16-44-40/`).** Janelas de
+1 s pelo instante de envio; distância drone1–gcs no meio da janela; rota e
+sinal da leitura mais próxima:
+
+| t (s) | Distância | Entregues | Mediana | Máx | Rota | TQ |
+|---|---|---|---|---|---|---|
+| 20–21 | 108,8 m | 7/20 | 105,4 ms | 114,5 ms | via gcs (direta) | 234 |
+| 21–22 | 113,2 m | 3/20 | 108,6 ms | 110,6 ms | via gcs | 226 |
+| 22–23 | 117,5 m | 6/20 | 81,3 ms | 109,1 ms | via gcs | 212 |
+| 23–24 | 121,8 m | 16/20 | 1,2 ms | 105,1 ms | via gcs | 205 |
+| 24–25 | 126,2 m | 20/20 | 1,0 ms | 1,3 ms | via drone2 | 196 |
+
+Mostra sozinho a troca para o relay. Também mostra um limite: a rota é lida
+a cada 1 s, então a janela 23–24 s já melhorou mas ainda aparece "via gcs"
+(a troca real foi entre as leituras de 23,0 s e 24,0 s).
+
+**Propostas levadas à usuária (aguardando ok).**
+1. **Janela por tempo**, 1 s por padrão (mesmo passo de `routes.csv` e
+   `signal.csv`), alterável por um campo opcional no config. Cada pacote
+   entra na janela do seu **envio** (pacote perdido não tem chegada). A
+   janela 0 começa no início do sender (mesmo t=0 da mobilidade).
+   Além disso, **tabela por faixa de distância** (10 m), igual à da seção
+   4.1, usando a distância no instante de envio de cada pacote.
+2. **Distância** em linha reta entre a origem e o destino de cada sentido
+   (em broadcast, uma por receiver), com as posições dos dois (ambos podem
+   se mover). Em multi-hop não é o comprimento do caminho; a coluna de rota
+   diz por quem passou.
+3. **Métricas por janela:** as mesmas do total (enviados, entregues,
+   perdidos, taxa de perda, maior rajada, latência mín/mediana/média/máx,
+   jitter), sem p95/p99 (poucos pacotes por janela).
+4. **Cruzar com rota e sinal:** próximo salto e TQ da melhor rota da origem
+   para o destino (`routes.csv`) e sinal da origem para o próximo salto
+   (`signal.csv`), da leitura feita na janela. Em broadcast o BATMAN
+   inunda a malha; a rota é só informativa.
+5. **Saída:** `windows-<origem>-<destino>.csv` e
+   `distance-<origem>-<destino>.csv`; no `summary.json` só os caminhos e o
+   tamanho da janela; no terminal, uma linha por sentido (ex.: primeira
+   perda em t e a que distância).
+6. **Janelas sem pacotes:** linha mantida com `sent = 0` e latência vazia
+   (distância e rota preenchidas), do t=0 ao fim do sender. "Nada enviado"
+   (`sent = 0`) é diferente de "tudo perdido" (`sent = 20, delivered = 0`).
+   Nunca preencher vazio com zero.
+
+---
+
+## D17. Por que o testbed move os nós em vez de usar a mobilidade do Mininet-WiFi (23/11/2026; explicação; decisão sobre modelos aleatórios pendente)
+
+**Contexto: quando surgiu.** Pergunta da usuária antes da semana 5: por que
+não usar `net.setMobilityModel(time=0, model='RandomDirection', max_x=100,
+max_y=100, seed=20)` do próprio Mininet-WiFi, em vez de o testbed criar a
+trajetória? Não seria menos proveitoso e mais trabalho para o usuário?
+
+**Origem da escolha.** O plano (`docs/Plano_execucao`, tabela de riscos)
+previa como plano B "uma thread do testbed interpola a trajetória e chama
+`setPosition()`", com a nota "talvez seja até melhor como plano A; a prova
+de conceito decide". A PoC de 05/11 validou `setPosition()` com `DockerSta`
++ wmediumd. A mobilidade nativa **nunca foi testada** no testbed com
+`DockerSta`. Modelos aleatórios ficaram "só se sobrar tempo" (fora de
+escopo no CLAUDE.md).
+
+**O que o código do Mininet-WiFi faz (lido em
+`mn_wifi/net.py` e `mn_wifi/mobility.py`, versão instalada no host).**
+1. **Relógio:** a mobilidade nativa começa dentro de `net.build()`
+   (`check_if_mob`). O `time=0` conta a partir da montagem da rede, não do
+   início do protocolo. No testbed, entre montar a rede e iniciar o sender
+   há a espera da malha (≈9–10 s, até `network_ready_timeout_seconds`) e a
+   captura. Os nós já estariam se movendo durante a espera da malha, e a
+   posição no início do protocolo dependeria de quanto a espera demorou.
+   No testbed, t=0 é o início do sender (D15), o mesmo t=0 de
+   `positions.csv` e das janelas da semana 5.
+2. **Espera da malha:** com nós andando ao acaso desde a montagem, o ping
+   de prontidão (D3) pode não passar, ou passar numa posição e o protocolo
+   começar em outra.
+3. **Modelos aleatórios (`RandomDirection`, `RandomWalk`, `RandomWayPoint`,
+   `GaussMarkov`...):** só 2D (z = 0); posição atualizada a cada 0,5 s;
+   posição inicial sorteada dentro da área. A `seed` fixa o sorteio do
+   movimento (numpy), mas não o *fading* do wmediumd: mesma seed = mesmo
+   caminho, não os mesmos resultados.
+4. **Trajetória nativa (`net.mobility(sta, 'start'/'stop', ...)`):** um
+   trecho reto de início a fim por nó; o laço que move os nós roda sem
+   pausa (espera ativa, ocupa um núcleo da CPU durante todo o movimento),
+   e a espera até `mob_start_time` do modelo aleatório também.
+5. **Registro:** a mobilidade nativa não grava as posições; o testbed
+   precisaria lê-las de qualquer jeito para `positions.csv` e para cruzar
+   com perda/latência.
+
+**Para o usuário, o esforço é o mesmo.** Em ambos os casos ele escreve
+alguns campos no YAML (o testbed nunca pede código Python). O que o
+testbed controla é *quando* e *como* o movimento acontece.
+
+**Sobre ser "menos proveitoso".** A trajetória definida é o que permite
+perguntas reproduzíveis do tipo "a partir de que distância o protocolo
+falha?" (mesma trajetória em várias execuções; comparar com e sem relay,
+como exp-08 × exp-09). O modelo aleatório responde a outra pergunta: "como
+o protocolo se comporta num enxame se movendo de forma imprevisível?". Os
+dois são úteis; não são substitutos.
+
+**Possível caminho, se a usuária quiser modelos aleatórios (aguarda
+decisão).** Os modelos do Mininet-WiFi são geradores Python
+(`random_direction(...)`, `random_waypoint(...)` etc., em
+`mn_wifi/mobility.py`) que devolvem a próxima posição de cada nó. O
+testbed pode usar esses mesmos geradores dentro da sua thread
+(`testbed/mobility.py`), com t=0 no início do sender, seed no config e
+registro em `positions.csv`: reaproveita os modelos sem perder o relógio
+nem o registro. Exemplo de config: `mobility: {type: random, model:
+RandomDirection, area: [100, 100], seed: 20, speed: [1, 5]}`. Custo
+estimado: 1–2 dias, mais uma execução real. Está fora do escopo atual
+(prazo ~18/12); entra se a usuária priorizar.
+
+**Decidido (23/11):** modelos aleatórios ficam como **tarefa extra**, fora
+do plano por enquanto. A usuária vai levar a questão à reunião do grupo
+(trajetória definida × modelos aleatórios do Mininet-WiFi via a thread do
+testbed) e trazer a decisão. Até lá, nada muda no código.
+
+**Adendo à D16 (23/11): decidido.** A usuária aprovou os 6 pontos da D16
+(proposta de 11/11) e pediu para incluir, na execução real da semana 5, a
+**confirmação REAL da análise nos dois sentidos**. Ela já está implementada
+desde a semana 3 (`latency.py` analisa todos os pares; TESTE AUTOMÁTICO
+`test_both_directions_and_non_udp_are_analysed`), mas nunca foi confirmada no
+real porque os binários de exemplo só enviam num sentido (o receiver não
+responde). Como confirmar: um sender temporário (fora do testbed, não
+versionado) que aceita `--destination/--port` e roda `ping -i 0.05` para o
+destino. ICMP echo/reply gera tráfego nos dois sentidos e exercita também
+a análise de um protocolo não UDP. Esperado: `latency-drone1-gcs.csv` e
+`latency-gcs-drone1.csv`. Ressalva: o status sai `inconclusive` (critério
+antigo da semana 1: UDP na porta do config), sem efeito na análise.
+
+**Implementado (23/11).**
+- `scripts/testbed/windows.py` (novo): no fim da execução, lê
+  `latency-*.csv`, `positions.csv`, `routes.csv` e `signal.csv` da pasta e
+  grava, por sentido, `windows-<origem>-<destino>.csv` (uma linha por janela,
+  de t=0 = início do sender até o fim do sender) e
+  `distance-<origem>-<destino>.csv` (uma linha por faixa com pacotes).
+  - Pacote entra na janela/faixa do seu **envio**; distância em linha reta
+    entre origem e destino nesse instante, **interpolada** entre as amostras
+    de 0,1 s de `positions.csv`. Na janela, a distância é a do meio dela.
+  - Métricas: as do total (`summarize` de `latency.py`) sem p95/p99.
+  - Rota: leituras da melhor rota da origem para o destino feitas **dentro**
+    da janela; se houve troca, `next_hop` mostra as duas (`gcs|drone2`); TQ,
+    `route_read_t` (t da leitura) e sinal/taxa para o próximo salto vêm da
+    última leitura da janela. Sem leitura na janela: vazio, nunca adivinhado.
+    Na tabela por distância, `next_hops` lista os próximos saltos vigentes no
+    envio dos pacotes da faixa.
+  - Janela sem pacotes: `sent = 0`, taxa de perda e latência vazias,
+    distância e rota preenchidas.
+  - Também roda sobre pastas antigas, sem rede:
+    `cd scripts && python3 -m testbed.windows <pasta> [--output-dir DIR]`.
+- Config: bloco opcional **`analysis`** com `window_seconds` (padrão 1) e
+  `distance_bin_meters` (padrão 10); campo desconhecido = erro (D9). (O
+  tamanho da faixa de distância configurável não estava na proposta; foi
+  acrescentado pelo mesmo motivo da janela.)
+- `run.py`: roda logo depois da análise de latência; resultado em
+  `summary.json` → `latency.windows` (tamanhos, caminhos, primeira perda por
+  sentido); problemas viram aviso, nunca mudam o status. Terminal: uma linha
+  por sentido, ex. `drone1->gcs: first loss at t=14.8s, at 84 m`.
+- TESTE AUTOMÁTICO: 227 testes, 8 novos (`tests/test_windows.py`, dados
+  sintéticos). 1 falha **anterior e alheia**: `test_repository_contract`
+  acusa `scripts/teste.yml` (arquivo da usuária) como config versionado.
+
+**Reprocessamento dos dados REAIS de 09/11 (no sandbox, sobre os CSVs das
+execuções reais; não substitui a execução real com o código novo).**
+- exp-09 (com relay): janelas de 20 a 25 s iguais ao protótipo (7/20, 3/20,
+  6/20, 16/20, 20/20 via drone2 a 126,2 m). Primeira perda t = 12,8 s a
+  76 m.
+- exp-08 (sem relay): primeira perda t = 14,8 s a 84 m (igual à seção 4.1).
+- Tabelas por distância batem com as feitas à mão, exceto por **1 pacote**
+  em algumas faixas (ex.: exp-08 90–100 m: 40/46 contra 39/45 à mão). Causa:
+  pacotes enviados exatamente na borda (ex.: 99,955 m); o testbed interpola
+  a posição no instante do envio, a conta à mão usou a amostra de 0,1 s
+  mais próxima. Os totais (698) batem.
+
+**Para a confirmação REAL:** `poc_semana5_ping.yml` (mesmo cenário do
+`poc_multihop_csv.yml`, relay a 75 m, trajetória em CSV) com
+`bin/poc_ping_sender` (temporário, ignorado pelo Git: `ping -M dont -i
+0.05`). `-M dont` tira o bit DF; sem ele, o kernel pode pôr ID 0 em todos
+os pedidos de ping (hipótese, não verificada), o que quebraria o casamento
+pelo ID. Confirma de uma vez: tabelas da semana 5, análise nos dois sentidos
+(ICMP) e cópia do CSV de trajetória (pendente desde 09/11).
+
+**Confirmação REAL — semana 5, dois sentidos e cópia do CSV (23/11,
+`logs/exp-11-semana5-ping/2026-11-23_13-55-46/`, `poc_semana5_ping.yml`,
+`poc_semana5_ping.log`).** Mesmo cenário da exp-09 (relay a 75 m, trajetória
+em CSV), sender = `ping -M dont -i 0.05`. Status `inconclusive`, como
+previsto (critério antigo: UDP na porta do config); sender `ended_by:
+testbed`, código -15 (SIGTERM), normal com `end: duration`. Malha 9,0 s,
+total 63,1 s.
+- **Dois sentidos (pendente desde a semana 3):** `drone1->gcs` (pedidos)
+  627/689, mediana 2,702 ms; `gcs->drone1` (respostas) 557/627, mediana
+  2,622 ms. O gcs enviou 627 respostas = os 627 pedidos que recebeu.
+  **Conferência independente** (bytes dos PCAPs, casando pelo número de
+  sequência do ICMP, sem o código do testbed): 627/689 e 557/627, mesmas
+  medianas; o próprio ping contou 557 respostas. Primeira análise REAL de
+  um protocolo não UDP (ICMP).
+- **IDs do IP:** 689/689 pedidos e 627/627 respostas com ID distinto,
+  nenhum com DF. (A hipótese de ID 0 sem `-M dont` não foi testada.)
+- **Cópia do CSV de trajetória (pendente desde 09/11):**
+  `trajectory-drone1.csv` na pasta; sha256 no `metadata.json` igual ao
+  `sha256sum` do original.
+- **Tabelas da semana 5:** `windows-` e `distance-` nos dois sentidos, sem
+  erros. Terminal: primeira perda `drone1->gcs` t = 9,9 s a 63 m,
+  `gcs->drone1` t = 13,0 s a 76 m. Rota do drone1 para o gcs: direta até a
+  janela 22–23 s, via drone2 a partir de 23–24 s (121,8 m); janelas 18–23 s
+  com 35–65% de perda e média 50–79 ms; depois da troca, 20/20 e ~3 ms.
+  Por distância: 110–120 m mostra `gcs|drone2`. A janela 35–36 s aparece
+  com `sent = 0` (fim do sender a ~35,0 s): regra das janelas vazias
+  exercitada.
+- **Achado novo (só visível com os dois sentidos):** a rota do gcs para o
+  drone1 oscilou: via drone2 na janela 23–24 s, **direta de novo** em
+  24–25 s, via drone2 de 25 s em diante. Nessas janelas as respostas
+  perderam mais (4/20 e 14/19) que os pedidos (20/20 e 20/20). A troca de
+  rota não é simétrica: cada nó decide a sua. Para protocolos de diálogo
+  (EDHOC), a perda de um sentido basta para falhar o handshake.
+- Variação entre execuções: a primeira perda de `drone1->gcs` foi a 63 m
+  (exp-09: 76 m) e a troca para o relay a ~122 m (exp-09: ~124 m). Mesmo
+  cenário, resultados diferentes (aleatoriedade do wmediumd, D11).

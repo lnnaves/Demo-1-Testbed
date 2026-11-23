@@ -18,6 +18,7 @@ from testbed.observer import NetworkObserver
 from testbed.rundir import DEFAULT_OUTPUT_DIR, prepare_run_directory
 from testbed.runner import execute_protocol
 from testbed.timing import Timeline
+from testbed.windows import analyze_windows, describe_first_loss
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,6 +67,27 @@ class ScenarioMonitor:
         if self._result is None:
             self._result = {"mobility": self.mobility.stop(), "observer": self.observer.stop()}
         return self._result
+
+
+def _analyze_windows(config: dict, protocol_result: dict, network_analysis: dict | None) -> dict | None:
+    """Latency/loss per time window and distance band (D16); attached to the latency block.
+
+    Problems become warnings of the latency analysis; the status never changes.
+    """
+    if not network_analysis or not network_analysis.get("valid"):
+        return None
+    sender = protocol_result.get("sender") or {}
+    if sender.get("started_at") is None or sender.get("ended_at") is None:
+        network_analysis["warnings"].append("windows: sender start/end unknown, tables not written")
+        return None
+    analysis = config["analysis"]
+    windows = analyze_windows(
+        config["output"]["directory"], network_analysis["files"], sender["started_at"], sender["ended_at"],
+        analysis["window_seconds"], analysis["distance_bin_meters"],
+    )
+    network_analysis["windows"] = windows
+    network_analysis["warnings"].extend(f"windows: {error}" for error in windows["errors"])
+    return windows
 
 
 def main() -> int:
@@ -118,6 +140,7 @@ def main() -> int:
 
         phase = timeline.start("analyze_network")
         network_analysis = analyze_run(config) if capture_result.get("valid") else None
+        windows = _analyze_windows(config, protocol_result, network_analysis)
 
         phase = timeline.start("write_outputs")
         summary = write_outputs(config, protocol_result, capture_result, network_analysis, scenario_result)
@@ -138,6 +161,9 @@ def main() -> int:
                 f"median latency {'-' if median_ms is None else f'{median_ms:.3f} ms'}",
                 file=sys.stderr,
             )
+        if windows is not None:
+            for direction in sorted(windows["files"]):
+                print(describe_first_loss(direction, windows["first_loss"][direction]), file=sys.stderr)
 
         if summary["status"] == "success":
             print("Experiment completed successfully.", flush=True)

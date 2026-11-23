@@ -18,7 +18,7 @@ SUPPORTED_PROTOCOL_MODES = {PROTOCOL_UNICAST, PROTOCOL_BROADCAST}
 
 # Every field the testbed understands, per section. Anything else is rejected,
 # so a typo (e.g. "postion") or a removed field never runs silently ignored.
-_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "capture"}
+_TOP_LEVEL_FIELDS = {"experiment", "protocol", "wireless", "nodes", "binaries", "capture", "analysis"}
 _EXPERIMENT_FIELDS = {
     "id", "duration_seconds", "receiver_startup_seconds", "shutdown_timeout_seconds",
     "network_ready_timeout_seconds", "drain_seconds", "end",
@@ -38,6 +38,8 @@ END_DURATION = "duration"
 SUPPORTED_END_MODES = {END_SENDER, END_DURATION}
 _BINARIES_FIELDS = {"sender", "receiver"}
 _CAPTURE_FIELDS = {"filter"}
+# Latency/loss per time window and distance band (D16).
+_ANALYSIS_FIELDS = {"window_seconds", "distance_bin_meters"}
 
 
 class ConfigError(ValueError):
@@ -222,6 +224,10 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         raise ConfigError("capture.filter must be a tcpdump (BPF) filter string")
     # Empty means "capture everything"; syntax is checked by tcpdump at start.
     capture_filter = capture_filter.strip() if capture_filter else None
+    analysis = _require_mapping(data.get("analysis") or {}, "analysis")
+    _reject_unknown_fields(analysis, _ANALYSIS_FIELDS, "analysis")
+    window_seconds = _positive_float(analysis.get("window_seconds", 1.0), "analysis.window_seconds")
+    distance_bin_meters = _positive_float(analysis.get("distance_bin_meters", 10.0), "analysis.distance_bin_meters")
 
     experiment_id = _require_string(experiment.get("id"), "experiment.id")
     if not _NODE_ID.match(experiment_id):
@@ -427,4 +433,5 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
         "nodes": normalized_nodes,
         "binaries": normalized_binaries,
         "capture": {"filter": capture_filter or None},
+        "analysis": {"window_seconds": window_seconds, "distance_bin_meters": distance_bin_meters},
     }
