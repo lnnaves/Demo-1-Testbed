@@ -1606,3 +1606,91 @@ atualizações de posição, 64 amostras de rotas/sinal.
   ficar perto do gcs. A previsão olhava só a distância ao gcs. Primeiro
   registro real de um nó que se afasta e **volta**: o BATMAN refez a rota
   (via relay e depois direta) sem intervenção.
+
+---
+
+## D20. Repetições com estatística (23/11/2026; aprovado, implementando)
+
+**Contexto: quando surgiu.** Item "se der tempo" da semana 6. O wmediumd
+sorteia o *fading* sem semente: o mesmo config não dá os mesmos números
+(mesmo cenário: primeira perda a 76 m na exp-09 e a 63 m na exp-11). Uma
+execução só não sustenta uma afirmação nem uma comparação entre cenários.
+
+**Decidido (23/11, aprovado pela usuária).**
+1. `scripts/run.py config.yml --repeat N` (sem a opção, uma execução, como
+   antes).
+2. Pastas: `logs/<experimento>/<data-hora>-campanha/rep-01/ ... rep-NN/`
+   (cada uma uma pasta normal) + `statistics.json` e `statistics.csv` na
+   pasta da campanha.
+3. Medidas resumidas por sentido: taxa de entrega; latência
+   mín/mediana/média/p95/máx; jitter; maior rajada de perda; t e distância
+   da primeira perda; mais o tempo da espera da malha e o status de cada
+   repetição.
+4. Média, desvio padrão (amostral) e IC 95% pela t de Student; com menos
+   de 2 valores, sem IC.
+5. Random Waypoint: a mesma seed em todas as repetições (mesmo caminho;
+   mede só a variação do rádio). `--vary-seed`: seed + (repetição − 1),
+   para caminhos diferentes.
+6. Repetição que falha fica registrada, fora da estatística; o resumo diz
+   quantas foram usadas e por que as outras não.
+7. Terminal: uma linha por repetição e, no fim, a tabela média ± IC.
+8. Validação REAL: `scripts/config.yml --repeat 5`.
+
+**Implementado (23/11).**
+- `scripts/testbed/campaign.py` (novo): `describe` (n, média, desvio
+  amostral, IC 95% = média ± t(n−1) · desvio / √n, mín, máx, valores),
+  tabela da t de Student (95%, bilateral; entre linhas, a mais
+  conservadora), `campaign_directory`, `repetition_seeds`,
+  `repetition_measures` (lê do `summary.json`: taxa de entrega,
+  latência mín/mediana/média/p95/máx, jitter, maior rajada, t e distância
+  da primeira perda; mais a espera da malha), `summarize`,
+  `write_statistics` (`statistics.json` com campanha, repetições e
+  estatística; `statistics.csv` com uma linha por medida), `format_table`.
+- `run.py`: o `main()` antigo virou `run_once()` sem mudança de
+  comportamento; `--repeat N` chama `run_campaign`, que carrega o config
+  uma vez para fixar as seeds do Random Waypoint (sorteadas uma vez se o
+  config não tiver), roda `rep-01..rep-NN` dentro da pasta da campanha e
+  imprime a tabela. `--vary-seed`: seed + (repetição − 1). Repetição com
+  status `failed` ou que não terminou fica fora da estatística, com o
+  motivo. Código de saída 0 só se todas as repetições foram usadas.
+- `config.py`: `load_config(..., seeds={nó: seed})` fixa a seed do Random
+  Waypoint; `rundir.py`: `prepare_run_directory(..., run_name="rep-NN")`.
+- Medida sem valor numa repetição (ex.: sem perda, logo sem "primeira
+  perda") não entra na média; o `n` de cada medida mostra quantas
+  entraram.
+- TESTE AUTOMÁTICO: 266 OK (11 novos em `tests/test_campaign.py`, com a
+  estatística conferida contra valores calculados à parte e o laço de
+  `--repeat` com execuções falsas).
+
+**Correção (23/11, primeira tentativa REAL).** `sudo python3 scripts/run.py
+--repeat 5` rodou a rep-01 normalmente (`success`, 199/199) e parou com
+`KeyError: 'summary'` em `run_campaign`. Causa: dentro de `run_once`, o
+dicionário devolvido à campanha se chamava `result`, o mesmo nome da
+variável do laço que imprime `drone1->gcs: ...`; depois do laço, `result`
+era o resultado de um sentido. Os testes não pegaram porque, neles, a
+análise de latência é simulada sem sentidos (o laço não roda) e o teste da
+campanha simula o `run_once` inteiro. Corrigido renomeando para `outcome`;
+teste de regressão novo em `tests/test_run.py` (`run_once` devolve o
+summary depois de imprimir os sentidos). TESTE AUTOMÁTICO: 267 OK. A pasta
+incompleta `logs/exp-01-unicast/2026-11-23_16-03-49-campanha/` (só rep-01,
+sem estatística) fica como registro.
+
+**Confirmação REAL — campanha de 5 repetições (23/11,
+`logs/exp-01-unicast/2026-11-23_16-05-20-campanha/`,
+`scripts/config.yml --repeat 5`, `poc_repeticoes.log`).** 5/5 `success`,
+5/5 usadas; `statistics.json` e `statistics.csv` gravados; ~38 s por
+repetição.
+- Espera da malha 9,29 ± 1,09 s (IC 95% 8,20–10,39; valores 8,1 a
+  10,2 s: os degraus de ~1 s da espera, D8).
+- drone1 → gcs: entrega 100% nas 5; latência mediana **0,239 ±
+  0,001 ms** (IC 95% 0,238–0,241), p95 0,551 ± 0,183 ms, máxima 3,39 ±
+  0,16 ms, jitter 0,147 ± 0,027 ms; primeira perda: nenhuma (n = 0, como
+  esperado).
+- **Conferência independente:** média e IC da mediana e do p95
+  recalculados à mão a partir dos `summary.json` de cada repetição: iguais.
+- Leitura: a 20 m e parado, a mediana é muito estável entre execuções; a
+  variação aparece nas caudas (p95 com IC largo). O `0,925 ms` do config
+  padrão em 09/11 não se repetiu em nenhuma das 5 (hipótese da taxa do
+  Wi-Fi, HIPOTESES_2026-11-09).
+- Ajuste depois da execução: o campo `campaign.config` saía vazio quando o
+  comando não indicava o config; agora registra o `scripts/config.yml`.

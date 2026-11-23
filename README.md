@@ -193,6 +193,25 @@ Experiment completed successfully.
 Total time: 62.6s
 ```
 
+### Repetições com estatística
+
+O rádio emulado tem aleatoriedade sem semente: o mesmo config não dá os
+mesmos números. Para resultados confiáveis, repita:
+
+```bash
+sudo python3 scripts/run.py meu-config.yml --repeat 10
+```
+
+Cada repetição vai para `logs/<experimento>/<data-hora>-campanha/rep-NN/`
+(uma pasta completa). Na pasta da campanha, `statistics.json` e
+`statistics.csv` trazem, por sentido, média, desvio padrão e intervalo de
+confiança de 95% (t de Student) de: taxa de entrega, latência
+mín/mediana/média/p95/máx, jitter, maior rajada de perda, instante e
+distância da primeira perda, e o tempo da espera da malha. Repetição que
+falha fica registrada, mas fora da estatística. Com Random Waypoint, todas
+as repetições seguem o mesmo caminho; `--vary-seed` usa um caminho
+diferente em cada uma (seed + repetição − 1).
+
 Os arquivos gerados pertencem ao `root`; apagá-los exige `sudo`.
 
 ## Saídas

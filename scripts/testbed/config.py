@@ -181,7 +181,9 @@ def _range(value: Any, path: str, minimum_exclusive: float | None = None, minimu
     return [low, high]
 
 
-def _random_waypoint(mobility: dict[str, Any], position: list[float], path: str) -> dict[str, Any]:
+def _random_waypoint(
+    mobility: dict[str, Any], position: list[float], path: str, seed_override: int | None = None
+) -> dict[str, Any]:
     """Validate the Random Waypoint parameters and draw the path (D19)."""
     _reject_unknown_fields(mobility, _RANDOM_WAYPOINT_FIELDS, path)
     for required in ("area", "speed", "duration"):
@@ -204,10 +206,13 @@ def _random_waypoint(mobility: dict[str, Any], position: list[float], path: str)
     pause = _range(mobility.get("pause", [0, 0]), f"{path}.pause", minimum=0)
     duration = _positive_float(mobility["duration"], f"{path}.duration")
     seed_given = mobility.get("seed")
-    if seed_given is None:
-        seed = random_waypoint.new_seed()
-    elif isinstance(seed_given, bool) or not isinstance(seed_given, int) or seed_given < 0:
+    if seed_given is not None and (isinstance(seed_given, bool) or not isinstance(seed_given, int) or seed_given < 0):
         raise ConfigError(f"{path}.seed must be a non-negative integer")
+    if seed_override is not None:
+        # Campaigns (D20) fix the seed of every repetition.
+        seed = seed_override
+    elif seed_given is None:
+        seed = random_waypoint.new_seed()
     else:
         seed = seed_given
     waypoints = random_waypoint.generate(position, area_min, area_max, speed, pause, seed, duration)
@@ -226,14 +231,14 @@ def _random_waypoint(mobility: dict[str, Any], position: list[float], path: str)
     }
 
 
-def _mobility(root: Path, value: Any, position: list[float], path: str) -> dict[str, Any]:
+def _mobility(root: Path, value: Any, position: list[float], path: str, seed: int | None = None) -> dict[str, Any]:
     """Normalize nodes[].mobility (D15, D19). No mobility = static at position."""
     if value is None:
         return {"type": "static"}
     mobility = _require_mapping(value, path)
     kind = _require_string(mobility.get("type", "static"), f"{path}.type")
     if kind == "random_waypoint":
-        return _random_waypoint(mobility, position, path)
+        return _random_waypoint(mobility, position, path, seed)
     _reject_unknown_fields(mobility, _MOBILITY_FIELDS, path)
     if kind == "static":
         if "waypoints" in mobility or "waypoints_csv" in mobility:
@@ -305,7 +310,12 @@ def _plain_ip(interface: str) -> str:
     return str(ipaddress.ip_interface(interface).ip)
 
 
-def load_config(path: str | Path | None = None, root: str | Path | None = None) -> dict[str, Any]:
+def load_config(
+    path: str | Path | None = None,
+    root: str | Path | None = None,
+    seeds: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """Load and validate the config. seeds: Random Waypoint seed per node id (campaigns, D20)."""
     project_root = Path(root).resolve() if root is not None else PROJECT_ROOT
     config_path = Path(path).resolve() if path is not None else CONFIG_PATH
 
@@ -319,10 +329,12 @@ def load_config(path: str | Path | None = None, root: str | Path | None = None) 
         raise ConfigError(f"invalid YAML in {config_path}: {exc}") from exc
 
     data = _require_mapping(raw, "config")
-    return normalize_config(data, project_root, config_path)
+    return normalize_config(data, project_root, config_path, seeds)
 
 
-def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None = None) -> dict[str, Any]:
+def normalize_config(
+    data: dict[str, Any], root: Path, config_path: Path | None = None, seeds: dict[str, int] | None = None
+) -> dict[str, Any]:
     experiment = _require_mapping(data.get("experiment", {}), "experiment")
     protocol = _require_mapping(data.get("protocol", {}), "protocol")
     wireless = _require_mapping(data.get("wireless", {}), "wireless")
@@ -506,7 +518,7 @@ def normalize_config(data: dict[str, Any], root: Path, config_path: Path | None 
             "image": _require_string(node.get("image", "drone:latest"), f"nodes[{index}].image"),
             "memory": _require_string(node.get("memory", "512m"), f"nodes[{index}].memory"),
             "txpower": float(_require_number(node.get("txpower", 10), f"nodes[{index}].txpower")),
-            "mobility": _mobility(root, node.get("mobility"), position, f"nodes[{index}].mobility"),
+            "mobility": _mobility(root, node.get("mobility"), position, f"nodes[{index}].mobility", (seeds or {}).get(name)),
         }
 
     if sender not in normalized_nodes:

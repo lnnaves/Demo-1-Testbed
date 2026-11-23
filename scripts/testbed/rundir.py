@@ -40,6 +40,7 @@ def prepare_run_directory(
     config: dict[str, Any],
     base_dir: str | Path = DEFAULT_OUTPUT_DIR,
     now: datetime | None = None,
+    run_name: str | None = None,
 ) -> dict[str, str]:
     """Create <base_dir>/<experiment.id>/<timestamp>/ and copy the config into it.
 
@@ -51,7 +52,11 @@ def prepare_run_directory(
     experiment_dir = Path(base_dir).resolve() / config["experiment"]["id"]
     run_dir = experiment_dir / stamp
     suffix = 2
-    while True:
+    if run_name is not None:
+        # A repetition of a campaign (D20): <campaign dir>/rep-NN, never reused.
+        run_dir = Path(base_dir).resolve() / run_name
+        run_dir.mkdir(parents=True, exist_ok=False)
+    while run_name is None:
         try:
             run_dir.mkdir(parents=True, exist_ok=False)
             break

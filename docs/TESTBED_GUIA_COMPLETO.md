@@ -488,7 +488,7 @@ No terminal sai uma linha por sentido, por exemplo
   atualizado?).
 - **Aleatoriedade:** o wmediumd sorteia o *fading* e a semente não pode ser
   fixada. Mesmo config = mesmo cenário, não os mesmos resultados. Por isso o
-  plano prevê repetições com estatística.
+  testbed oferece repetições com estatística (`--repeat N`, D20).
 
 ---
 
@@ -648,7 +648,8 @@ broadcast reais em `success`.
   padrão sem `commands` continua igual.
 - Guia [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md); README e
   `BIN_INTERFACE.md` atualizados.
-- Fica para "se der tempo": repetições com média, desvio e IC 95%.
+- Repetições com média, desvio e IC 95% (`--repeat N`, D20), confirmadas no
+  real com 5 repetições do config padrão.
 
 ---
 
@@ -788,11 +789,11 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 - Tabelas por janela de tempo e por faixa de distância.
 - Contrato com comando livre e marcadores, imagem própria, pastas de dados
   e de saída; compatibilidade com configs sem `commands`.
+- Repetições com estatística (`--repeat N`: média, desvio, IC 95%), D20.
 
 ### Ainda não exercitado no real
 
 - Protocolo real (EDHOC, PQ-EDHOC, TESLA) e tráfego TCP.
-- Repetições com estatística (média, desvio, IC 95%).
 
 ### Limitações conhecidas
 
@@ -817,9 +818,6 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 
 ## 13. Próximos passos
 
-- **Se der tempo:** repetições do mesmo config com média, desvio e
-  intervalo de confiança de 95% (o wmediumd não tem semente, então uma
-  execução só não basta para comparar).
 - **Integrar um protocolo real** (PQ-EDHOC) pelo
   [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md), quando os binários estiverem
   disponíveis; isso também confirmaria o TCP, se ele usar TCP.
@@ -847,6 +845,9 @@ sudo python3 scripts/run.py poc_mobilidade.yml 2>&1 | tee poc_mobilidade.log
 # exemplo completo do contrato da semana 6 (imagem própria)
 docker build -t drone-echo:latest examples/echo
 sudo python3 scripts/run.py examples/echo/config.yml
+
+# repetir o mesmo config 10 vezes, com média, desvio e IC 95% (D20)
+sudo python3 scripts/run.py meu-config.yml --repeat 10
 
 # resultados em outra pasta base
 sudo python3 scripts/run.py --output-dir /caminho/resultados
@@ -905,7 +906,7 @@ exige `sudo`.
 | Documento | Conteúdo |
 |---|---|
 | [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md) | Como integrar o seu protocolo (contrato da semana 6) |
-| [`DECISOES.md`](DECISOES.md) | Todas as decisões (D1–D19) com contexto, motivo e confirmações |
+| [`DECISOES.md`](DECISOES.md) | Todas as decisões (D1–D20) com contexto, motivo e confirmações |
 | [`RELATORIO_2026-11-05.md`](RELATORIO_2026-11-05.md) | Relatório das semanas 1 e 2 |
 | [`RELATORIO_2026-11-09.md`](RELATORIO_2026-11-09.md) | Relatório da semana 3 (latência) |
 | [`RELATORIO_SEMANA4_2026-11-09.md`](RELATORIO_SEMANA4_2026-11-09.md) | Relatório da semana 4 (mobilidade) |

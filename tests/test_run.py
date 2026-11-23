@@ -199,6 +199,25 @@ class RunMainTests(unittest.TestCase):
         actual_order = [entry[0] for entry in manager.mock_calls]
         self.assertEqual(actual_order, expected_order)
 
+    def test_run_once_returns_the_summary_even_after_printing_directions(self):
+        """Regression (23/11): a loop variable named like the returned dict replaced it."""
+        network = MagicMock()
+        network.nodes = {}
+        summary = {"status": "success", "failures": [], "latency": {"directions": {
+            "drone1->gcs": {"total": {"delivered": 5, "sent": 5, "latency_median_ms": 0.2}}}}}
+        with patch("run.load_config", return_value=_config()), \
+             patch("run.build_network", return_value=network), \
+             patch("run.start_capture", return_value=MagicMock()), \
+             patch("run.execute_protocol", return_value={"status": "success", "failures": []}), \
+             patch("run.write_outputs", return_value=summary), \
+             patch("run.cleanup_mininet"):
+            exit_code, outcome = run.run_once(None, "/runs")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIs(outcome["summary"], summary)
+        self.assertEqual(outcome["directory"], "/runs/exp/2026-11-05_10-00-00")
+        self.assertEqual(outcome["mesh_ready_seconds"], 0.0)
+
     def test_run_directory_uses_output_dir_option_and_is_printed(self):
         network = MagicMock()
         network.nodes = {}
