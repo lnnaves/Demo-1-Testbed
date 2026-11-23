@@ -226,7 +226,9 @@ fim-a-fim; entrega/perda; mobilidade.
 - Escolher `batman_orig_interval_ms` padrão para cenários com mobilidade.
 - Mobilidade aleatória (D17 → D19): decidido manter a trajetória definida
   e acrescentar Random Waypoint próprio, gerado como trajetória com seed
-  (caminho B). Formato aprovado em 23/11. `docs/MOBILIDADE_RANDOM_WAYPOINT.md`
+  (caminho B). Formato aprovado, implementado e confirmado no host em 23/11
+  (exp-15: caminho = previsto com seed 20, 868/1194, rota via relay e de
+  volta à direta). `docs/MOBILIDADE_RANDOM_WAYPOINT.md`
   é estudo da usuária: **não commitar** (excluído em `.git/info/exclude`).
   No fim do projeto: acrescentar ao README a diferença RWP nativo × testbed.
 - Guia de integração (semana 6) deve dizer que a imagem do usuário precisa de

@@ -47,7 +47,8 @@ class MobilityController:
         self.trajectories = {
             name: node_cfg["mobility"]["waypoints"]
             for name, node_cfg in config["nodes"].items()
-            if node_cfg["mobility"]["type"] == "trajectory"
+            # trajectory and random_waypoint (D19) both come as waypoints
+            if "waypoints" in node_cfg["mobility"]
         }
         self.started = threading.Event()
         self.t0_wall: float | None = None

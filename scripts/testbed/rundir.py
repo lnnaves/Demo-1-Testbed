@@ -30,6 +30,12 @@ NODE_OUTPUT_NAME = "out-{node}"
 _TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
 
+def write_waypoints(path: str | Path, waypoints: list[list[float]]) -> None:
+    """Same format as nodes[].mobility.waypoints_csv: t,x,y,z (readable back as a trajectory)."""
+    lines = ["t,x,y,z"] + [",".join(f"{value:.6f}" for value in point) for point in waypoints]
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def prepare_run_directory(
     config: dict[str, Any],
     base_dir: str | Path = DEFAULT_OUTPUT_DIR,
@@ -71,9 +77,14 @@ def prepare_run_directory(
         shutil.copyfile(config_path, output["config"])
     output["trajectories"] = {}
     for name, node in (config.get("nodes") or {}).items():
-        source = (node.get("mobility") or {}).get("source")
-        if source and source != "config":
-            copy = run_dir / TRAJECTORY_NAME.format(node=name)
+        mobility = node.get("mobility") or {}
+        source = mobility.get("source")
+        copy = run_dir / TRAJECTORY_NAME.format(node=name)
+        if source == "random_waypoint":
+            # The drawn path, so it can be seen, cited and compared (D19).
+            write_waypoints(copy, mobility["waypoints"])
+            output["trajectories"][name] = str(copy)
+        elif source and source != "config":
             shutil.copyfile(source, copy)
             output["trajectories"][name] = str(copy)
     config["output"] = output

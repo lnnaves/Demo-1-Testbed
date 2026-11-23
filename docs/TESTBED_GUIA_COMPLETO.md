@@ -521,16 +521,27 @@ continue reproduzível mesmo que o arquivo original seja editado. Desde a
 semana 5, esse cruzamento sai pronto nas tabelas `windows-` e `distance-`
 (seção 7.6).
 
+**Random Waypoint (D19, 23/11).** Além da trajetória definida, um nó pode
+ter `type: random_waypoint`: o testbed sorteia, a partir de uma `seed`,
+destinos uniformes numa área 3D, velocidades (m/s, mínimo > 0) e pausas,
+e transforma isso numa trajetória comum, que começa na `position` do nó em
+t = 0. O caminho sorteado vai para `trajectory-<nó>.csv` e a seed para o
+`metadata.json`; a mesma seed gera o mesmo caminho (os números ainda
+variam pelo rádio). Confirmado no real (exp-15): o caminho foi exatamente o
+previsto, e o drone que se afastou e voltou teve a rota refeita pelo
+BATMAN (via relay, depois direta). É uma implementação própria do modelo
+clássico de Johnson e Maltz (1996), não o modelo nativo do Mininet-WiFi:
+não começa no "estado estacionário" do modelo, então execuções curtas
+ficam na fase transitória.
+
 **Por que o testbed move os nós em vez de usar a mobilidade do
 Mininet-WiFi (D17).** A mobilidade nativa (`setMobilityModel`,
 `net.mobility`) começa na montagem da rede, não no início do protocolo: os
 nós já andariam durante a espera da malha, e a posição no início do
 protocolo dependeria de quanto a espera demorou. Ela também não grava as
 posições, e os modelos aleatórios são só 2D, com passo de 0,5 s. Para o
-usuário, o esforço é o mesmo (campos no YAML). Modelos aleatórios
-(RandomDirection, RandomWaypoint...) podem ser acrescentados usando os
-geradores do Mininet-WiFi dentro da thread do testbed; é uma tarefa extra,
-a decidir com o grupo.
+usuário, o esforço é o mesmo (campos no YAML). Por isso o Random Waypoint
+foi implementado pelo próprio testbed (D19).
 
 ---
 
@@ -767,6 +778,7 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
   metadados.
 - PCAP por participante.
 - Latência e perda de rede por sentido, por receiver e por fluxo.
+- Mobilidade aleatória (Random Waypoint próprio, com seed registrada).
 - Mobilidade por trajetória (no YAML e em CSV, com cópia e sha256 do CSV),
   fim por duração e por estouro de tempo, registro de posições, rotas e
   sinal.
@@ -811,7 +823,6 @@ Detalhes em [`HIPOTESES_2026-11-09.md`](HIPOTESES_2026-11-09.md).
 - **Integrar um protocolo real** (PQ-EDHOC) pelo
   [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md), quando os binários estiverem
   disponíveis; isso também confirmaria o TCP, se ele usar TCP.
-- **Decisão do grupo:** modelos de mobilidade aleatórios (D17).
 - Pendências: escolher o intervalo padrão do BATMAN para mobilidade;
   investigar a diferença de latência pergunta × resposta do exemplo echo;
   decidir o futuro do `metrics.csv` antigo.
@@ -894,7 +905,7 @@ exige `sudo`.
 | Documento | Conteúdo |
 |---|---|
 | [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md) | Como integrar o seu protocolo (contrato da semana 6) |
-| [`DECISOES.md`](DECISOES.md) | Todas as decisões (D1–D18) com contexto, motivo e confirmações |
+| [`DECISOES.md`](DECISOES.md) | Todas as decisões (D1–D19) com contexto, motivo e confirmações |
 | [`RELATORIO_2026-11-05.md`](RELATORIO_2026-11-05.md) | Relatório das semanas 1 e 2 |
 | [`RELATORIO_2026-11-09.md`](RELATORIO_2026-11-09.md) | Relatório da semana 3 (latência) |
 | [`RELATORIO_SEMANA4_2026-11-09.md`](RELATORIO_SEMANA4_2026-11-09.md) | Relatório da semana 4 (mobilidade) |

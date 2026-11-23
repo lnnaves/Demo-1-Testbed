@@ -204,7 +204,7 @@ class MobilityConfigTests(unittest.TestCase):
                 "- [0, 1, 0, 0]", "- [0, 1, 0, 0]\n        - [5, 2, 0, 0]"),
             "at least two": MOBILE_CONFIG.replace("        - [30, 150, 0, 0]\n", ""),
             r"\[t, x, y, z\]": MOBILE_CONFIG.replace("- [30, 150, 0, 0]", "- [30, 150]"),
-            "'static' or 'trajectory'": MOBILE_CONFIG.replace("type: trajectory", "type: random"),
+            "'static', 'trajectory' or 'random_waypoint'": MOBILE_CONFIG.replace("type: trajectory", "type: random"),
             "unknown field": MOBILE_CONFIG.replace("type: trajectory", "type: trajectory\n      speed: 3"),
         }
         for match, text in cases.items():

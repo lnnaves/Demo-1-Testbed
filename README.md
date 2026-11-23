@@ -72,6 +72,29 @@ nodes:
         - [30, 150, 0, 0]
 ```
 
+- Mobilidade (`nodes[].mobility`), por nó; os tipos podem ser misturados no
+  mesmo cenário (ex.: gcs parado, drone1 com trajetória, drone2 aleatório).
+  O movimento começa no início do sender (t = 0) e cada nó parte da sua
+  `position`:
+
+  | `mobility.type` | Para quê |
+  |---|---|
+  | ausente ou `static` | O nó fica parado na `position` |
+  | `trajectory` | Você define o caminho: pontos `[t, x, y, z]` em `waypoints` ou num CSV (`waypoints_csv`) |
+  | `random_waypoint` | O testbed sorteia o caminho (modelo Random Waypoint) dentro de `area`, com `speed` (m/s, mínimo > 0), `pause` (s), `seed` e `duration`; o caminho sorteado é gravado em `trajectory-<nó>.csv` e a seed no `metadata.json` |
+
+  ```yaml
+  mobility:
+    type: random_waypoint
+    area: [[0, 0, 10], [120, 120, 30]]   # canto mínimo e máximo [x, y, z]
+    speed: [3, 8]
+    pause: [0, 2]
+    seed: 20                             # mesma seed = mesmo caminho (opcional)
+    duration: 60
+  ```
+
+  O Random Waypoint é uma implementação própria do testbed, não o modelo
+  nativo do Mininet-WiFi (D19 em `docs/DECISOES.md`).
 - Em `unicast`, o sender recebe o IP do único receiver; em `broadcast`,
   `wireless.broadcast_ip`, e todos os receivers são iniciados.
 - `end: sender` serve para protocolos que terminam sozinhos (ex.: um
@@ -187,7 +210,7 @@ logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
     positions.csv                   posição de cada nó a cada 0,1 s
     routes.csv                      tabela do BATMAN de cada nó a cada 1 s (próximo salto, TQ)
     signal.csv                      sinal, taxa e falhas do Wi-Fi por vizinho a cada 1 s
-    trajectory-<nó>.csv             cópia do CSV de trajetória (quando usado)
+    trajectory-<nó>.csv             cópia do CSV de trajetória, ou caminho sorteado do random_waypoint
     windows-<origem>-<destino>.csv  entrega e latência por janela de tempo, com distância, rota e sinal
     distance-<origem>-<destino>.csv entrega e latência por faixa de distância
     out-<nó>/                       o que o programa do nó gravou em /opt/protocol/out

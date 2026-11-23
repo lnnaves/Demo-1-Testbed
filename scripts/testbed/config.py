@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from . import random_waypoint
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "config.yml"
 CONTAINER_BIN_DIR = "/opt/protocol/bin"
@@ -41,6 +43,8 @@ _WIRELESS_FIELDS = {
 }
 _NODE_FIELDS = {"id", "container_name", "ip", "position", "image", "memory", "txpower", "mobility"}
 _MOBILITY_FIELDS = {"type", "waypoints", "waypoints_csv"}
+# Random Waypoint generated as a trajectory (D19).
+_RANDOM_WAYPOINT_FIELDS = {"type", "area", "speed", "pause", "seed", "duration"}
 # How the experiment ends (D15): when the sender exits on its own, or when the
 # testbed stops it after experiment.duration_seconds (normal, not a failure).
 END_SENDER = "sender"
@@ -157,19 +161,86 @@ def _read_waypoints_csv(csv_path: Path, path: str) -> list[list[float]]:
     return waypoints
 
 
+def _position(value: Any, path: str) -> list[float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ConfigError(f"{path} must be [x, y, z]")
+    return [float(_require_number(item, path)) for item in value]
+
+
+def _range(value: Any, path: str, minimum_exclusive: float | None = None, minimum: float | None = None) -> list[float]:
+    """[low, high] with low <= high and a lower bound on low."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ConfigError(f"{path} must be [minimum, maximum]")
+    low, high = (float(_require_number(item, path)) for item in value)
+    if low > high:
+        raise ConfigError(f"{path}: minimum {low} is greater than maximum {high}")
+    if minimum_exclusive is not None and low <= minimum_exclusive:
+        raise ConfigError(f"{path}: minimum must be greater than {minimum_exclusive:g}")
+    if minimum is not None and low < minimum:
+        raise ConfigError(f"{path}: minimum must be at least {minimum:g}")
+    return [low, high]
+
+
+def _random_waypoint(mobility: dict[str, Any], position: list[float], path: str) -> dict[str, Any]:
+    """Validate the Random Waypoint parameters and draw the path (D19)."""
+    _reject_unknown_fields(mobility, _RANDOM_WAYPOINT_FIELDS, path)
+    for required in ("area", "speed", "duration"):
+        if required not in mobility:
+            raise ConfigError(f"{path}.{required} is required for type: random_waypoint")
+    area = mobility["area"]
+    if not isinstance(area, (list, tuple)) or len(area) != 2:
+        raise ConfigError(f"{path}.area must be [[x_min, y_min, z_min], [x_max, y_max, z_max]]")
+    area_min = _position(area[0], f"{path}.area[0]")
+    area_max = _position(area[1], f"{path}.area[1]")
+    for axis, low, high in zip("xyz", area_min, area_max):
+        if low > high:
+            raise ConfigError(f"{path}.area: {axis} minimum {low} is greater than maximum {high}")
+    if area_max[0] <= area_min[0] or area_max[1] <= area_min[1]:
+        raise ConfigError(f"{path}.area must have a positive size in x and in y")
+    if not all(low <= value <= high for value, low, high in zip(position, area_min, area_max)):
+        raise ConfigError(f"{path}: position {position} must be inside the area {area_min} .. {area_max}")
+    # speed_min > 0: with 0 the mean speed decays over time (Yoon, Liu and Noble, 2003).
+    speed = _range(mobility["speed"], f"{path}.speed", minimum_exclusive=0)
+    pause = _range(mobility.get("pause", [0, 0]), f"{path}.pause", minimum=0)
+    duration = _positive_float(mobility["duration"], f"{path}.duration")
+    seed_given = mobility.get("seed")
+    if seed_given is None:
+        seed = random_waypoint.new_seed()
+    elif isinstance(seed_given, bool) or not isinstance(seed_given, int) or seed_given < 0:
+        raise ConfigError(f"{path}.seed must be a non-negative integer")
+    else:
+        seed = seed_given
+    waypoints = random_waypoint.generate(position, area_min, area_max, speed, pause, seed, duration)
+    return {
+        "type": "random_waypoint",
+        "waypoints": waypoints,
+        "source": "random_waypoint",
+        "parameters": {
+            "area": [area_min, area_max],
+            "speed": speed,
+            "pause": pause,
+            "duration": duration,
+            "seed": seed,
+            "seed_from_config": seed_given is not None,
+        },
+    }
+
+
 def _mobility(root: Path, value: Any, position: list[float], path: str) -> dict[str, Any]:
-    """Normalize nodes[].mobility (D15). No mobility = static at position."""
+    """Normalize nodes[].mobility (D15, D19). No mobility = static at position."""
     if value is None:
         return {"type": "static"}
     mobility = _require_mapping(value, path)
-    _reject_unknown_fields(mobility, _MOBILITY_FIELDS, path)
     kind = _require_string(mobility.get("type", "static"), f"{path}.type")
+    if kind == "random_waypoint":
+        return _random_waypoint(mobility, position, path)
+    _reject_unknown_fields(mobility, _MOBILITY_FIELDS, path)
     if kind == "static":
         if "waypoints" in mobility or "waypoints_csv" in mobility:
             raise ConfigError(f"{path}: waypoints are only allowed with type: trajectory")
         return {"type": "static"}
     if kind != "trajectory":
-        raise ConfigError(f"{path}.type must be 'static' or 'trajectory'")
+        raise ConfigError(f"{path}.type must be 'static', 'trajectory' or 'random_waypoint'")
     has_list = "waypoints" in mobility
     has_csv = "waypoints_csv" in mobility
     if has_list == has_csv:

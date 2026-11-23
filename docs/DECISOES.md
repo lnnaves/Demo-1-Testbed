@@ -1556,3 +1556,53 @@ Mininet-WiFi (que vem da pymobility e começa no estado estacionário),
 melhorias, desvantagens e referências: em `docs/MOBILIDADE_RANDOM_WAYPOINT.md`,
 documento de estudo da usuária, **local e não versionado** (a pedido dela).
 No fim do projeto, um resumo dessa diferença entra no README.
+
+**Implementado (23/11).**
+- `scripts/testbed/random_waypoint.py` (novo): `generate(position, área,
+  velocidade, pausa, seed, duração)` sorteia com `random.Random(seed)`
+  destino uniforme na área (3D), velocidade uniforme, trecho reto, pausa
+  uniforme; corta o último trecho em `duration`; devolve `[t, x, y, z]`.
+- `config.py`: `type: random_waypoint` com `area`, `speed` (mínimo > 0),
+  `pause` (opcional, padrão `[0, 0]`, mínimo ≥ 0), `seed` (opcional: sem ela,
+  o testbed sorteia uma e a registra, então o caminho continua repetível),
+  `duration`; a área precisa ter tamanho positivo em x e y e conter a
+  `position`. O caminho é gerado ao carregar o config.
+- `mobility.py`: move qualquer nó com `waypoints` (trajetória ou Random
+  Waypoint), pela mesma thread de 0,1 s.
+- `rundir.py`: grava o caminho sorteado em `trajectory-<nó>.csv` (mesmo
+  formato `t,x,y,z` de `waypoints_csv`, então pode ser reusado como
+  trajetória definida). `metadata.py`: `trajectories.<nó>` ganha
+  `random_waypoint` (área, velocidade, pausa, duração, seed e se a seed veio
+  do config) e o sha256 do arquivo.
+- `scripts/config.yml`: exemplo comentado.
+- TESTE AUTOMÁTICO: 255 OK (12 novos em `tests/test_random_waypoint.py`:
+  definição, teste estatístico com qui-quadrado nos destinos e quartis das
+  velocidades, config, arquivos da execução).
+- Validação REAL pendente: `poc_random_waypoint.yml` (drone1 aleatório em
+  120 × 120 m, altitude 10–30 m, seed 20, 60 s; gcs no solo; drone2 parado
+  a 60 m). Caminho previsto: longe de todos entre ~16 e ~33 s (130–139 m do
+  gcs), volta a ~62 m do gcs em ~45 s, termina a ~85 m.
+
+**Confirmação REAL — Random Waypoint (23/11,
+`logs/exp-15-random-waypoint/2026-11-23_15-46-37/`,
+`poc_random_waypoint.yml`).** `success`, malha 8,1 s, total 86,9 s, 616
+atualizações de posição, 64 amostras de rotas/sinal.
+- **Caminho:** `trajectory-drone1.csv` idêntico ao previsto no sandbox com
+  a seed 20 (12 pontos; mesma seed = mesmo caminho, também no host);
+  `positions.csv` segue o arquivo com desvio máximo de 0,004 m em 616
+  linhas, altitude variando de 10 a 27 m; `metadata.json` com área,
+  velocidade, pausa, duração, `seed: 20` e sha256.
+- **Medidas:** 868/1194 entregues, mediana 2,658 ms; conferência
+  independente (bytes dos PCAPs): 1194 / 868 / 2,658 ms. Primeira perda
+  t = 8,9 s a 84 m (de novo ~84 m, como na exp-08 e na exp-13).
+- **Por janela:** perda crescente de 84 a 125 m pela rota direta; a 133 m
+  (t = 15 s) a rota passa a ser via drone2 e a entrega volta a ~80%; com o
+  drone1 longe também do drone2 (~110–120 m), o TQ cai de 196 para 21 e a
+  entrega cai a 1–4 de 20 (27–34 s); **na volta**, a entrega se recupera a
+  partir de ~37 s (~100 m do gcs) ainda via drone2, e a rota volta a ser
+  direta em t = 42 s (~74 m). Sem perda de 40 a 51 s.
+- **Achado:** a recuperação veio antes do previsto (~45 s): o relay
+  começou a funcionar assim que o drone1 se aproximou do drone2, antes de
+  ficar perto do gcs. A previsão olhava só a distância ao gcs. Primeiro
+  registro real de um nó que se afasta e **volta**: o BATMAN refez a rota
+  (via relay e depois direta) sem intervenção.
