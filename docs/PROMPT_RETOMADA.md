@@ -13,63 +13,51 @@ inteiro, para economizar contexto.
    atual e plano com checkboxes.
 
 2. LEIA AGORA, nesta ordem:
-   a) docs/TESTBED_GUIA_COMPLETO.md — visão completa do testbed em
-      09/11 (arquitetura, fases, config, saídas, medidas, histórico,
-      resultados, limitações). É o documento que a usuária estudou e
-      apresentou aos colegas e ao orientador; use os mesmos termos.
-   b) docs/RELATORIO_SEMANA4_2026-11-09.md — último dia de trabalho.
-   c) docs/DECISOES.md — leia a D15 (mobilidade) por inteiro e a seção
-      final "Revisão antes do push" (conferência geral de 09/11 à noite,
-      com as confirmações de multi-hop, CSV e timeout e a resposta sobre
-      UDP); da D13 (latência) leia o resumo "Situação da semana 3" e as
-      confirmações; das demais basta o título (grep "^## D").
-   NÃO leia README.md, RELATORIO_TECNICO.md, CONTEXTO_AGENTE.md,
-   BIN_INTERFACE.md, third-party/ nem os testes antigos, a menos que a
-   tarefa exija (estão desatualizados; CLAUDE.md vence).
+   a) docs/RELATORIO_2026-11-23.md — último dia de trabalho (semanas 5 e 6).
+   b) docs/GUIA_INTEGRACAO.md — o contrato atual, do ponto de vista de quem
+      integra um protocolo.
+   c) docs/DECISOES.md — leia D16, D17 e D18 por inteiro (com as
+      confirmações REAIS no fim de cada uma); das demais basta o título
+      (grep "^## D").
+   d) docs/TESTBED_GUIA_COMPLETO.md só se a tarefa for sobre ele (veja o
+      item 4).
+   NÃO leia RELATORIO_TECNICO.md, CONTEXTO_AGENTE.md (histórico),
+   third-party/ nem os testes antigos, a menos que a tarefa exija.
 
-3. ONDE PARAMOS (09/11/2026):
-   - Semanas 1 e 2 na main (PRs #20 e #21). Semanas 3 e 4 na branch
-     semana1-execucao-real, com push feito em 09/11 (commit 011be49 ou
-     posterior), mas SEM PR: ainda não estão na main. Não afirme o estado
-     do GitHub sem "git fetch".
-   - Semana 3 (latência): casamento de pacotes pelo ID do IP, janela 5 s,
-     latency-<origem>-<destino>.csv e bloco "latency" no summary.json.
-   - Semana 4 (mobilidade): nodes[].mobility (trajectory com waypoints ou
-     CSV), experiment.end (sender | duration), testbed/mobility.py
-     (setPosition a cada 0,1 s após o início do sender), testbed/observer.py
-     (routes.csv e signal.csv a cada 1 s), positions.csv, ended_by nos
-     processos, sender de exemplo contínuo (50 ms até SIGTERM).
-   - REAL: drone1 de 20 a 150 m em 30 s -> 407/698 entregues, perda a partir
-     de 84 m, latência sobe antes (~70 m). Config padrão (10 s): 199/199.
-     Mesma trajetória via CSV com relay a 75 m -> multi-hop real (rota via
-     drone2 a ~124 m), 615/698. end: sender estourando -> "sender timed out".
-   - Cópia do CSV de trajetória na pasta + sha256 no metadata: implementada
-     e aprovada, falta confirmação REAL (rode poc_multihop_csv.yml de novo).
-   - Ainda não real: protocolo real/TCP e análise nos dois sentidos.
-   - TESTE AUTOMÁTICO: 219 OK.
-   - Entre 09/11 e 16/11 a usuária só estudou o testbed e apresentou aos
-     colegas e ao orientador. PERGUNTE se surgiram dúvidas, críticas ou
-     pedidos dessa apresentação ANTES de seguir: eles podem mudar o plano.
+3. ONDE PARAMOS (23/11/2026):
+   - main: semanas 1 a 4 (PRs #20, #21, #22). Semanas 5 e 6 só na branch
+     semana1-execucao-real, com commits locais SEM push. Não afirme o
+     estado do GitHub sem "git fetch".
+   - Semana 5 (D16): scripts/testbed/windows.py -> windows-/distance-
+     <origem>-<destino>.csv (janela padrão 1 s, faixa 10 m; bloco
+     "analysis" no config), linha "first loss" no terminal. REAL: exp-11
+     (ping, dois sentidos, relay), exp-12 (broadcast 697/697, gcs via relay
+     a ~111 m), exp-13 (unicast 627/697, troca de rota a ~120 m).
+   - Semana 6 (D18): bloco "commands" com marcadores {address}
+     {destination} {port} {node_id} {mode} {data_dir} {output_dir}, sem
+     shell; TESTBED_*; protocol-data/<nó>/ -> /opt/protocol/data (ro);
+     out-<nó>/ <- /opt/protocol/out (cwd); status success = qualquer IPv4
+     do sender para um receiver; validate_scenario ajustado. Exemplo
+     examples/echo (imagem drone-echo:latest). REAL: exp-14 (echo 50/50
+     nos dois sentidos, ended_by self) e exp-01 (config padrão sem
+     commands, 199/199, compatível).
+   - D17: mobilidade nativa do Mininet-WiFi x thread do testbed; modelos
+     aleatórios = tarefa extra, a usuária decide com o grupo.
+   - Ainda não real: TCP e protocolo real (PQ-EDHOC).
+   - TESTE AUTOMÁTICO: 243 testes; 1 falha alheia (scripts/teste.yml, da
+     usuária, acusado por test_repository_contract): ela decide.
 
-4. PRÓXIMO: SEMANA 5 — latência e perda por janela de tempo × posições.
-   A tabela "por distância" da seção 4.1 do relatório da semana 4 foi feita
-   à mão; a semana 5 é o testbed gerá-la sozinho. Antes de codar, leve à
-   usuária, de forma simples:
-   - janela por tempo (ex.: 1 s) e/ou por faixa de distância (ex.: 10 m)?
-     Distância de quem a quem (par sender/receiver; nós móveis)?
-   - que métricas por janela (entregues/perdidos, mediana, máx, jitter?) e
-     cruzar também com sinal (signal.csv) e rota/TQ (routes.csv)?
-   - formato da saída (ex.: windows-<origem>-<destino>.csv) e resumo no
-     terminal;
-   - o que fazer com janelas sem pacotes.
-   Para isso, leia só: scripts/testbed/latency.py, scripts/testbed/mobility.py,
-   scripts/testbed/observer.py e scripts/run.py. Dados reais para conferir:
-   logs/exp-08-mobilidade/2026-11-09_16-14-38/ (sem relay) e
-   logs/exp-09-multihop-csv/2026-11-09_16-44-40/ (com relay: a janela
-   deve mostrar a troca de rota a ~124 m).
-   Pendências que podem entrar: escolher batman_orig_interval_ms padrão para
-   mobilidade; status success/inconclusive ainda depende de UDP na porta do
-   config; IPv6 fora da análise; PR das semanas 3 e 4 (só se ela pedir).
+4. PRÓXIMO (pergunte à usuária a ordem):
+   - Atualizar docs/TESTBED_GUIA_COMPLETO.md, se ainda não foi feito
+     (confira a data no topo dele).
+   - (Se der tempo) repetições: rodar o mesmo config N vezes e calcular
+     média, desvio e IC 95% das métricas; levar as decisões à usuária
+     antes de codar (onde ficam as N pastas, quais métricas, formato).
+   - Pendências: escolher batman_orig_interval_ms padrão para mobilidade;
+     observação em aberto do echo (pergunta ~1,66 ms x resposta ~0,17 ms,
+     mesma taxa do Wi-Fi); PR das semanas 5 e 6 (só se ela pedir);
+     decisão do grupo sobre modelos aleatórios (D17).
+   - Prazo do projeto: ~18/12/2026.
 
 5. COMO TRABALHAR COM A USUÁRIA (importante):
    - Ela quer ENTENDER antes de avançar: explique de forma simples o que
@@ -102,20 +90,27 @@ inteiro, para economizar contexto.
    - os testes rodam aqui com pyyaml no scratchpad:
        pip install --target <scratchpad>/pylib pyyaml
        PYTHONPATH=<scratchpad>/pylib python3 -m unittest discover -s tests
+   - os poc_semana5_*.yml (23/11) também são registro: não apague;
+     bin/poc_ping_sender (sender que só roda ping) é ignorado pelo Git.
+     Versionados como config: scripts/config.yml e examples/echo/config.yml.
    - resultados legíveis aqui em logs/<exp>/<data-hora>/; PCAPs podem ser
-     lidos com scripts/testbed/pcap.py.
+     lidos com scripts/testbed/pcap.py; tabelas da semana 5 de uma pasta
+     antiga: cd scripts && python3 -m testbed.windows <pasta> --output-dir
+     <scratchpad>.
    - arquivos do root aparecem como "nfsnobody" aqui; é só o sandbox.
    - ao dar comandos para o host, não dependa da saída de "ls" (o terminal
      dela tem eza); use caminhos explícitos ou "command ls".
 
-Confirme em poucas linhas que entendeu onde paramos, pergunte o que surgiu
-na apresentação e, então, apresente de forma simples as decisões do item 4
-antes de implementar.
+Confirme em poucas linhas que entendeu onde paramos, pergunte se há
+novidades (reunião do grupo sobre a D17, binários do PQ-EDHOC) e qual
+item do 4 ela quer seguir.
 ```
 
 ## Variações
 
-- Para abrir o PR das semanas 3 e 4 antes de seguir: troque a última frase
-  por "Antes da semana 5, me explique como abrir o PR das semanas 3 e 4".
-- Para só tirar dúvidas sobre o guia: troque a última frase por "Ainda não
-  implemente nada; quero tirar dúvidas sobre o TESTBED_GUIA_COMPLETO.md".
+- Para abrir o PR das semanas 5 e 6 antes de seguir: troque a última frase
+  por "Antes de seguir, me explique como fazer push e abrir o PR das
+  semanas 5 e 6".
+- Para integrar um protocolo real: troque a última frase por "Quero
+  integrar o <protocolo>; leia docs/GUIA_INTEGRACAO.md e me ajude a
+  escrever a imagem e o bloco commands".
