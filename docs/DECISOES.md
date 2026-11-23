@@ -1320,3 +1320,35 @@ total 63,1 s.
 - Variação entre execuções: a primeira perda de `drone1->gcs` foi a 63 m
   (exp-09: 76 m) e a troca para o relay a ~122 m (exp-09: ~124 m). Mesmo
   cenário, resultados diferentes (aleatoriedade do wmediumd, D11).
+
+**Confirmação REAL — semana 5 em broadcast com mobilidade (23/11,
+`logs/exp-12-semana5-broadcast/2026-11-23_14-05-56/`,
+`poc_semana5_broadcast.yml`).** drone1 de 20 a 150 m em 30 s (YAML),
+receivers gcs (x=0) e drone2 (x=75); `analysis` com janela 2 s e faixas de
+5 m. `success`, malha 8,7 s, total 62,2 s.
+- **697/697 nos dois receivers**, nenhuma perda; mediana 0,959 ms (gcs) e
+  0,950 ms (drone2). Conferência independente (bytes dos PCAPs, UDP para
+  192.168.123.255:5000): 697 enviados com IDs distintos, 697/697 nos dois,
+  0 duplicatas, mesmas medianas.
+- **Bloco `analysis` exercitado no real:** 18 janelas de 2 s (a última,
+  34–36 s, com 20 pacotes) e faixas de 5 m.
+- **drone1 → drone2:** distância 51 → 1,3 m (passagem em t ≈ 12,7 s) → 75 m;
+  sinal de -81 a -22 dBm na passagem. Na tabela por distância, as faixas
+  de 0 a 50 m juntam ida e volta (`t_first`/`t_last` separados, ex.:
+  50–55 m: t = 0,0 e 25,3 s); de 55 m em diante só a volta.
+- **drone1 → gcs: o broadcast chegou por dois saltos.** Sem relay, na
+  exp-08 (unicast), só 2/101 chegaram a 150 m. Aqui, 100% até 150 m: o
+  BATMAN retransmite o broadcast pela malha e o drone2 repassou ao gcs. A
+  latência mostra a mudança: mediana ~0,93 ms até ~100 m (um salto) e
+  ~1,83 ms a partir da janela 20–22 s (~111 m), o dobro (dois saltos); de
+  30 s em diante, mínimo 1,70 ms (só pelo relay). Entre 20 e 30 s o mínimo
+  ainda é ~0,9 ms: alguns pacotes ainda vieram direto. O BATMAN descarta a
+  segunda cópia (0 duplicatas na `bat0`). Hipótese (não verificada): vale a
+  cópia que chega primeiro, e quando o enlace direto piora a cópia pelo
+  relay ganha.
+- A coluna `next_hop` (rota unicast) só trocou para drone2 na janela
+  24–26 s, depois de a latência já ter dobrado: em broadcast ela é só
+  informativa, como previsto na proposta.
+- **Lição para quem usa o testbed:** com broadcast e um nó intermediário,
+  "entregue" não significa "alcance direto"; a latência por janela é o que
+  mostra o caminho.

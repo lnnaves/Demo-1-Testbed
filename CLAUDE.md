@@ -143,7 +143,9 @@ fim-a-fim; entrega/perda; mobilidade.
   Suíte 227 (1 falha alheia: `scripts/teste.yml` da usuária acusado por
   `test_repository_contract`). D17: mobilidade nativa do Mininet-WiFi ×
   thread do testbed; modelos aleatórios = tarefa extra, usuária decide
-  com o grupo. Próximo: semana 6 (perguntar antes).
+  com o grupo. Broadcast + mobilidade também real (exp-12): 697/697 nos
+  dois receivers; o gcs passou a receber via relay (mediana 0,93 → 1,83 ms).
+  Próximo: semana 6 (perguntar antes).
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
   `3c795fc`, feito pela usuária no GitHub). Suíte na época: 157 testes OK.
