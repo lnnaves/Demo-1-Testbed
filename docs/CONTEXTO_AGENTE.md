@@ -1,5 +1,22 @@
 # Contexto de Inicialização do Agente de IA
 
+> **Documento histórico (aviso de 23/11/2026).** Descreve o testbed antes do
+> plano de 6 semanas. Para iniciar uma sessão de agente, use
+> [`PROMPT_RETOMADA.md`](PROMPT_RETOMADA.md); a fonte de verdade é o
+> `CLAUDE.md` da raiz, e as decisões estão em [`DECISOES.md`](DECISOES.md).
+> Regras deste arquivo **revogadas**:
+> - o contrato fixo `--destination/--address/--port` e a proibição de
+>   argumentos dinâmicos: desde a semana 6 o comando é livre, com marcadores
+>   (D18; [`GUIA_INTEGRACAO.md`](GUIA_INTEGRACAO.md));
+> - "nunca gerar YAML": campanhas poderão salvar o config de cada ponto;
+> - "nada pode depender de contagem de pacotes": a análise de entrega e perda
+>   conta pacotes IP pelo ID do cabeçalho (D13), sem ler o conteúdo;
+> - status por UDP em `protocol.port`: agora é por qualquer tráfego IPv4 do
+>   sender para um receiver (D18).
+> Continuam valendo: agnóstico de protocolo (nunca interpretar payload nem
+> stdout), não alterar `third-party/containernet/`, honestidade (sem
+> pré-requisitos = NÃO EXECUTADO; `interval_*` não é latência).
+
 Documento para abrir uma nova sessão de agente sobre o repositório
 `lnnaves/Demo-1-Testbed` sem precisar reconstruir o contexto manualmente.
 Cole/aponte este arquivo no início da sessão.

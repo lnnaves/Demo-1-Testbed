@@ -148,8 +148,9 @@ fim-a-fim; entrega/perda; mobilidade.
   Semana 6 (D18) implementada e confirmada no host com `examples/echo`
   (imagem `drone-echo:latest`, comandos com marcadores, `out-<nó>/`,
   `TESTBED_*`, status por tráfego IP, `validate_scenario` ajustado).
-  Suíte 243. Falta: guia "integre seu protocolo", README, BIN_INTERFACE,
-  CONTEXTO_AGENTE. Compatibilidade confirmada no host: `scripts/config.yml`
+  Suíte 243. Guia `docs/GUIA_INTEGRACAO.md`, README, BIN_INTERFACE e aviso
+  no CONTEXTO_AGENTE feitos. Falta atualizar `TESTBED_GUIA_COMPLETO.md`
+  (estado de 09/11) e o relatório/prompt do dia. Compatibilidade confirmada no host: `scripts/config.yml`
   sem `commands` → mesmos comandos, success, 199/199.
 
 - **Semana 1 concluída**, enviada e mergeada na `main` pelo PR #20 (merge
@@ -273,8 +274,10 @@ fim-a-fim; entrega/perda; mobilidade.
 ### Semana 6 — contrato e documentação
 - [x] Comando com marcadores, `data`/`out`, variáveis de ambiente (D18;
       real 23/11 com `examples/echo`)
-- [ ] Exemplo completo + guia "integre seu protocolo"
-- [ ] Atualizar README, BIN_INTERFACE.md, CONTEXTO_AGENTE.md, testes de contrato
+- [x] Exemplo completo + guia "integre seu protocolo" (`examples/echo`,
+      `docs/GUIA_INTEGRACAO.md`)
+- [x] Atualizar README, BIN_INTERFACE.md, CONTEXTO_AGENTE.md (aviso de
+      histórico), testes de contrato
 - [ ] (se der tempo) repetições com média, desvio e IC 95%
 
 ### Fora de escopo

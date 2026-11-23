@@ -6,15 +6,18 @@ Mininet-WiFi + wmediumd), roteamento em malha BATMAN-adv, captura PCAP em
 cada participante e relatórios de latência, entrega/perda, rotas e sinal.
 
 O produto é a **plataforma**, não os executáveis de exemplo. Quem testa um
-protocolo (ex.: EDHOC, PQ-EDHOC, TESLA) troca `bin/sender` e `bin/receiver`
-pelos seus programas, descreve o cenário em `scripts/config.yml` e recebe os
-resultados numa pasta por execução. O testbed não implementa, não interpreta
+protocolo (ex.: EDHOC, PQ-EDHOC, TESLA) coloca os seus programas numa imagem
+`FROM drone:latest`, escreve no config como chamá-los (bloco `commands`,
+com marcadores como `{destination}` e `{port}`) e recebe os resultados numa
+pasta por execução. Passo a passo:
+[`docs/GUIA_INTEGRACAO.md`](docs/GUIA_INTEGRACAO.md). O testbed não implementa, não interpreta
 e não altera nenhum protocolo: nunca lê o conteúdo dos pacotes nem a saída
 dos programas para decidir algo.
 
-**Estado (09/11/2026):** semanas 1 a 4 do plano concluídas e confirmadas em
-execução real (unicast, broadcast, latência e perda de rede, mobilidade,
-multi-hop). Explicação completa, com resultados e limitações:
+**Estado (23/11/2026):** semanas 1 a 6 do plano implementadas e confirmadas
+em execução real (unicast, broadcast, latência e perda de rede nos dois
+sentidos, mobilidade, multi-hop, tabelas por janela de tempo e por
+distância, contrato com comando livre e marcadores). Explicação completa, com resultados e limitações:
 [`docs/TESTBED_GUIA_COMPLETO.md`](docs/TESTBED_GUIA_COMPLETO.md).
 
 ## Fluxo de uma execução
@@ -99,25 +102,32 @@ espera da malha com `network not ready`.
 
 ## Integração do protocolo
 
-Contrato atual (será trocado por um comando com marcadores na semana 6),
-detalhado em [`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md):
+Guia completo: [`docs/GUIA_INTEGRACAO.md`](docs/GUIA_INTEGRACAO.md). Resumo:
 
-```bash
-sender --destination <IP_DESTINO> --port <PORTA>
-receiver --address <IP_LOCAL> --port <PORTA>
+```yaml
+nodes:
+  - id: drone1
+    image: meu-protocolo:latest        # FROM drone:latest + o seu programa
+commands:                              # sem shell; aspas valem
+  sender:   "meu-initiator coap://{destination}:{port} --log {output_dir}/init.log"
+  receiver: "meu-responder --bind {address} --port {port} --key {data_dir}/key.pem"
 ```
 
+- Marcadores: `{address}` (IP do nó), `{destination}` (unicast: IP do
+  receiver; broadcast: IP de broadcast), `{port}`, `{node_id}`, `{mode}`,
+  `{data_dir}` (`/opt/protocol/data`, de `protocol-data/<nó>/`, só leitura)
+  e `{output_dir}` (`/opt/protocol/out`, gravado em `out-<nó>/` na pasta da
+  execução; é a pasta de trabalho do programa). Marcador desconhecido é erro.
+- Variáveis de ambiente: `TESTBED_NODE_ID`, `TESTBED_ROLE`, `TESTBED_MODE`,
+  `TESTBED_DATA_DIR`, `TESTBED_OUTPUT_DIR`.
 - Os programas rodam sem interação, em primeiro plano, e abrem os próprios
-  sockets.
-- O receiver (e o sender, se usar `end: duration`) deve encerrar ao receber
-  SIGTERM. Ser encerrado pelo testbed é normal e fica registrado como
-  `ended_by: testbed`.
-- Bibliotecas, chaves e certificados vão numa imagem própria
-  `FROM drone:latest` (campo `nodes[].image`). A imagem precisa ter `ping`,
-  usado na espera da malha (`drone:latest` já tem).
-- Os exemplos `bin/sender` e `bin/receiver` não são um protocolo: o sender
-  envia 1 byte por UDP a cada 50 ms até receber SIGTERM; o receiver só
-  escuta.
+  sockets (IPv4). Quem não termina sozinho deve encerrar com SIGTERM; ser
+  encerrado pelo testbed é normal (`ended_by: testbed`, qualquer código).
+- Exemplo completo, com imagem própria: [`examples/echo/`](examples/echo/).
+- Sem `commands`, valem os binários de exemplo `bin/sender`
+  (`--destination/--port`, 1 byte por UDP a cada 50 ms até SIGTERM) e
+  `bin/receiver` (`--address/--port`, só escuta). Eles não são um protocolo
+  ([`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md)).
 
 ## Pré-requisitos
 
@@ -178,6 +188,9 @@ logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
     routes.csv                      tabela do BATMAN de cada nó a cada 1 s (próximo salto, TQ)
     signal.csv                      sinal, taxa e falhas do Wi-Fi por vizinho a cada 1 s
     trajectory-<nó>.csv             cópia do CSV de trajetória (quando usado)
+    windows-<origem>-<destino>.csv  entrega e latência por janela de tempo, com distância, rota e sinal
+    distance-<origem>-<destino>.csv entrega e latência por faixa de distância
+    out-<nó>/                       o que o programa do nó gravou em /opt/protocol/out
     summary.json                    status, processos (exit code, stdout, stderr, ended_by),
                                     captura, latência/perda, mobilidade, avisos
     metrics.csv                     intervalos entre pacotes no sender (métrica antiga)
@@ -201,10 +214,10 @@ logs/<experiment.id>/<AAAA-MM-DD_HH-MM-SS>/
 
 ## Status e limitações
 
-- `success`: processos e captura válidos e UDP na porta `protocol.port`
-  observado no PCAP do sender;
-- `inconclusive`: processos e captura válidos, mas nenhum UDP na porta
-  `protocol.port` no sender;
+- `success`: processos e captura válidos e pelo menos um pacote IPv4 do
+  sender para um receiver (qualquer protocolo ou porta) no PCAP do sender;
+- `inconclusive`: processos e captura válidos, mas nenhum pacote IPv4 do
+  sender para um receiver no PCAP do sender;
 - `failed`: falha de processo (inclusive `sender timed out` com
   `end: sender`) ou de captura. Se a execução para antes do protocolo (ex.:
   `network not ready`), não há `summary.json`; o `timing.json` marca a fase
@@ -215,12 +228,12 @@ Interpretação honesta:
 - perder pacotes **não** muda o status: é resultado do cenário;
 - os campos `interval_*` do `metrics.csv` **não são latência**;
 - exit `0` dos programas significa só encerramento local controlado;
-- o critério do status ainda olha só UDP em `protocol.port` (um protocolo só
-  TCP ou em outra porta sairia `inconclusive`); IPv6 é capturado, mas não
-  entra na análise de latência;
+- IPv6 é capturado, mas não entra na análise de latência nem no status;
 - o wmediumd tem aleatoriedade sem semente: mesmo config, mesmo cenário, não
   os mesmos resultados;
-- confirmado em execução real até agora só com os binários de exemplo (UDP);
+- confirmado em execução real com os binários de exemplo (UDP), com `ping`
+  (ICMP, dois sentidos) e com o exemplo `examples/echo` (UDP, pergunta e
+  resposta); ainda não com TCP nem com um protocolo real;
 - sem privilégios, Docker, módulos de kernel ou dependências do
   Mininet-WiFi, o cenário é **NÃO EXECUTADO**.
 
@@ -276,4 +289,5 @@ O código vendorizado em `third-party/containernet/` não é modificado.
 | [`docs/LATENCIA_REDE_X_PROGRAMA.md`](docs/LATENCIA_REDE_X_PROGRAMA.md) | Por que medimos latência de rede |
 | [`docs/HIPOTESES_2026-11-09.md`](docs/HIPOTESES_2026-11-09.md) | Hipóteses em aberto sobre os resultados |
 | `docs/RELATORIO_*.md` | Relatórios de cada dia de trabalho |
-| [`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md) | Contrato atual dos executáveis |
+| [`docs/GUIA_INTEGRACAO.md`](docs/GUIA_INTEGRACAO.md) | Como integrar o seu protocolo (contrato da semana 6) |
+| [`bin/BIN_INTERFACE.md`](bin/BIN_INTERFACE.md) | Os binários de exemplo `bin/sender` e `bin/receiver` |
