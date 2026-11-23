@@ -1352,3 +1352,22 @@ receivers gcs (x=0) e drone2 (x=75); `analysis` com janela 2 s e faixas de
 - **Lição para quem usa o testbed:** com broadcast e um nó intermediário,
   "entregue" não significa "alcance direto"; a latência por janela é o que
   mostra o caminho.
+
+**Confirmação REAL — semana 5 em unicast, gêmeo do broadcast (23/11,
+`logs/exp-13-semana5-unicast/2026-11-23_14-15-55/`,
+`poc_semana5_unicast.yml`).** Mesmo cenário da exp-12 (3 nós, mesma
+trajetória, janela 2 s, faixas 5 m), em unicast drone1 → gcs; drone2 só
+relay. `success`, malha 8,1 s, total 62,0 s, sem avisos.
+- **627/697 entregues (10% de perda)**, maior rajada 6, mediana 1,134 ms,
+  p95 103,5 ms. Conferência independente (bytes dos PCAPs): 697 IDs
+  distintos, 627 entregues, mesma mediana. Primeira perda t = 14,7 s a
+  84 m (igual à exp-08).
+- Por janela: sem perda até ~80 m (0,24 ms até 60 m; ~2,5 ms a 68–76 m);
+  de 85 a 111 m a perda cresce (36/39 → 14/40) e a mediana vai a ~104 ms
+  com a rota ainda direta; na janela 22–24 s (~120 m) `next_hop` vira
+  drone2 e a entrega volta a 38/39 com ~1,1 ms; a 150 m, ~3,5 ms.
+- **Unicast × broadcast no mesmo cenário (exp-13 × exp-12):** broadcast
+  697/697 (o BATMAN inunda; o drone2 repassou sem esperar troca de rota,
+  latência dobrou a ~111 m); unicast 627/697 (o pacote só vai pelo relay
+  quando o BATMAN troca a rota; até lá, 85–120 m com perda e ~100 ms). A
+  diferença é exatamente a janela antes da troca de rota.
